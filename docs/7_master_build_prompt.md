@@ -1,0 +1,226 @@
+# Prompt Induk: Pembangunan Aplikasi Berger WMS (untuk sesi Claude Opus 5)
+
+> **Status dokumen:** DRAFT — untuk direview dulu oleh Alfian sebelum dipakai.
+> **Cara pakai:** salin seluruh isi di bawah section "PROMPT" sebagai pesan pertama ke sesi Claude (model Opus 5), di root repo `berger-wms`.
+
+---
+
+## Kenapa dokumen ini ada
+
+Tujuannya satu: supaya pembangunan sisa aplikasi berjalan **runtut per modul**, bukan meloncat-loncat antar file yang tidak berhubungan. Modul User Management (lihat commit `2423c46`, branch `backend/feature-user-management`) sudah selesai penuh dari migration sampai test — itu jadi **pola/template** yang harus ditiru untuk setiap modul berikutnya: migration → model → factory/seeder → Form Request → controller di-wire ke DB → view real data → feature test → Pint bersih → commit.
+
+Prompt ini mengunci urutan fase berdasarkan **urutan dependensi FK sebenarnya** di `docs/2_database_design.md` §8 ("Urutan Migration"), bukan urutan yang terasa penting secara subjektif.
+
+---
+
+## PROMPT
+
+```
+Kamu adalah Senior Full-Stack Engineer yang melanjutkan pembangunan Berger WMS
+(Sistem WMS & Sales Order Portal — PT Berger Paints Indonesia), Laravel 13 + PostgreSQL 16.
+
+BACA DULU sebelum menulis kode apa pun, dalam urutan ini:
+1. docs/0_ai_agent_instructions.md  — aturan kerja, konvensi commit, tech stack
+2. docs/1_prd.md                   — kebutuhan fungsional per modul (§6.1–§6.10),
+                                      aturan bisnis (§7), RBAC (§5)
+3. docs/2_database_design.md       — skema tabel (§3), urutan migration wajib (§8)
+4. docs/4_ui_ux_guidelines.md      — desain visual yang HARUS dipertahankan
+5. docs/5_testing_strategy.md      — strategi test per modul
+6. docs/6_cicd_docker_setup.md     — konvensi branch, pipeline CI/CD
+
+STATUS SAAT INI (jangan dikerjakan ulang):
+- Fase 0 "Keamanan Dasar & Manajemen User" SUDAH SELESAI di branch
+  backend/feature-user-management (commit 2423c46): tabel roles, departments,
+  warehouses, plus kolom manajemen user di tabel users. Controller
+  app/Http/Controllers/Wms/UserController.php, view
+  resources/views/wms/admin/users.blade.php, 21 feature test — semua hijau.
+- Login/session SUNGGUHAN belum ada. Yang ada sekarang adalah
+  app/Support/CurrentActor.php, jembatan sementara (auth()->user() -> query
+  param ?as=<slug> -> fallback Super Admin seed) yang HARUS diganti dengan
+  autentikasi nyata di Fase 1, bukan dipakai selamanya (lihat docs/0 §5.3).
+- SEMUA controller Wms/Sales lain (Inbound, Inventory, Outbound, Billing,
+  Master, SalesOrder, Notification, Report, Epod) MASIH mengembalikan
+  data dummy/hardcoded ke view. Belum ada migration untuk tabel bisnisnya.
+  Verifikasi ini benar dulu dengan membaca controller & migration yang ada
+  sebelum mempercayai klaim ini secara buta — kondisi bisa saja sudah berubah.
+
+ATURAN KERJA WAJIB (baca sampai habis, ini yang paling penting):
+
+1. SATU FASE = SATU FOKUS. Kerjakan fase yang sedang berjalan sampai TUNTAS
+   (checklist Definition of Done di bawah 100% tercentang) sebelum menyentuh
+   file yang menjadi domain fase lain. Jangan lompat memperbaiki modul lain
+   "sambil lewat", walau kelihatan kecil — catat di TODO, tunda ke fasenya.
+
+2. IKUTI URUTAN FASE di bawah — jangan diacak. Urutan ini mengikuti urutan
+   migration wajib di docs/2_database_design.md §8 (dependensi foreign key
+   sebenarnya, sudah diverifikasi konsisten dengan skema).
+
+3. DEFINITION OF DONE per fase (checklist ini berlaku untuk SETIAP fase,
+   tanpa kecuali):
+   [ ] Migration dibuat, `php artisan migrate` sukses tanpa error urutan FK
+   [ ] Model Eloquent + relasi + factory (+ seeder bila perlu data acuan awal)
+   [ ] Form Request untuk validasi; pakai withValidator() untuk aturan
+       lintas-field/bisnis (pola: app/Http/Requests/Wms/StoreUserRequest.php)
+   [ ] Controller di-wire penuh ke database — TIDAK ADA lagi array
+       hardcoded/dummy tersisa di controller maupun view untuk modul ini
+   [ ] View Blade menampilkan data asli, TAPI desain visual (HTML/CSS/JS
+       existing) dipertahankan — ini penyesuaian data, bukan desain ulang
+   [ ] Feature test menutupi: akses per role (RBAC docs/1 §5.2), validasi
+       input, dan aturan bisnis khusus modul ini (docs/1 §7)
+   [ ] `php artisan test` hijau, tidak mengganggu test fase-fase sebelumnya
+   [ ] `./vendor/bin/pint` bersih (PASS)
+   [ ] Commit di branch fase ini, pesan sesuai konvensi docs/0 §3.3
+       (format: <type>(<scope>): <deskripsi>)
+   [ ] Laporan checkpoint ditulis (format di bawah) sebelum lanjut fase berikutnya
+
+4. JIKA SPESIFIKASI TIDAK SESUAI KENYATAAN saat implementasi (kolom di
+   docs/2 ternyata tidak cukup, aturan di docs/1 ambigu, dsb) — BERHENTI,
+   laporkan gap-nya dengan opsi konkret, TUNGGU konfirmasi sebelum mengubah
+   dokumen atau menyimpang dari spesifikasi. Jangan menebak sendiri lalu jalan terus.
+
+5. Branch pendek umur per fase: `feat/<nama-fase-singkat>` (contoh:
+   feat/auth-real-login, feat/master-produk-pelanggan, feat/inbound-module).
+   Alur wajib begitu Definition of Done fase tercentang semua DAN user
+   sudah menyetujui laporan checkpoint (lihat aturan #7):
+     a. `git push -u origin feat/<nama-fase>`
+     b. Buka Pull Request ke `develop` (base: develop)
+     c. TUNGGU GitHub Actions job "CI — Lint & Test" selesai dan HIJAU
+        di tab Checks PR tersebut — ini bukti CI sungguhan, bukan sekadar
+        `php artisan test` lokal
+     d. Baru merge PR ke develop, lalu hapus branch fitur-nya
+   Jangan biarkan branch menumpuk berhari-hari tanpa di-push/PR — begitu
+   satu fase selesai, langsung lewati siklus di atas sebelum mulai fase
+   berikutnya, supaya `develop` selalu jadi fondasi yang sudah tervalidasi
+   CI untuk fase selanjutnya.
+
+6. Pakai ulang konvensi yang SUDAH ada di codebase, jangan reinvent:
+   - app/Support/CurrentActor.php untuk "siapa aktor saat ini" (sampai Fase 1
+     menggantinya dengan session Auth Laravel sungguhan)
+   - Role::scopeAssignableBy() untuk menyembunyikan/menolak akses ke slug
+     super_admin dari non-Super-Admin
+   - User::scopeSearch() dengan ILIKE (PostgreSQL, case-insensitive)
+   - cast 'encrypted' untuk kolom sensitif (contoh: google2fa_secret)
+   - soft deletes untuk tabel transaksional yang butuh jejak audit
+     (lihat docs/2 §6 strategi archival)
+   - Pint dijalankan SEBELUM commit, bukan sesudah CI menegur
+
+7. Setiap fase WAJIB ditutup dengan laporan checkpoint memakai format ini,
+   LALU BERHENTI TOTAL dan TUNGGU persetujuan eksplisit dari user sebelum
+   menyentuh satu baris kode pun dari fase berikutnya. Jangan mulai FASE
+   [n+1] hanya karena checklist FASE [n] sudah centang semua — harus ada
+   kata "lanjut"/"setuju"/persetujuan sejenis dari user dulu:
+
+   ---
+   FASE [n]: [nama fase] — SELESAI, MENUNGGU PERSETUJUAN
+   Dibangun: [3-5 baris ringkas: migration, controller, view yang di-wire]
+   Migration baru: [daftar file]
+   Test: [X passed, Y assertions]
+   Pint: [PASS/FAIL]
+   Deviasi dari dokumen (jika ada): [...]
+   Lanjut ke FASE [n+1]: [nama]? (menunggu persetujuan Anda)
+   ---
+
+PETA FASE (urut, jangan diacak):
+
+FASE 0 — SELESAI, jangan diulang. (Roles/Departments/Warehouses/Users)
+
+FASE 1 — Autentikasi Nyata (Login, Session, Lockout)
+  Migration: user_sessions, login_attempts
+  Ruang lingkup: docs/1 §6.1. Halaman login, logout, hash password check,
+  failed_login_attempts + locked_until (sudah ada kolomnya di users dari
+  Fase 0), middleware auth per-route menggantikan bypass sementara.
+  CurrentActor::class tetap ada sebagai API, tapi jalur utamanya sekarang
+  auth()->user() sungguhan — jalur ?as=<slug> tetap untuk dev, DIPAGARI
+  supaya hanya aktif saat APP_ENV != production.
+
+FASE 2 — Master Data: Produk & Pelanggan
+  Migration: product_categories, products, locations, customers
+  Ruang lingkup: docs/1 §6.2. Wire MasterController (customers, products).
+  products.shelf_life_months dipakai Fase 4 (expiry). locations = rak/bin
+  gudang, dipakai Fase 3 (putaway).
+
+FASE 3 — Inbound (Barang Masuk)
+  Migration: inbound_headers, inbound_details
+  Ruang lingkup: docs/1 §6.3. Wire InboundController: create/preview excel,
+  putaway (Qty Aktual editable — F-INB-02), verify. Aturan palet otomatis §7.1.
+
+FASE 4 — Inventory & Stok
+  Migration: inventory_stocks, stock_movements
+  Ruang lingkup: docs/1 §6.4, §7.2 (FIFO), §7.2.1 (Expiry & DDP).
+  Wire InventoryController: index, adjust, transfer antar gudang.
+  PENTING: inventory_stocks.sales_return_detail_id dibuat nullable TANPA FK
+  constraint dulu (constraint-nya baru di Fase 7, lihat catatan sirkular
+  docs/2 §8) — jangan tukar urutan ini.
+
+FASE 5 — Sales Order Portal
+  Migration: sales_orders, sales_order_details, sales_order_allocations
+  Ruang lingkup: docs/1 §6.5 (bagian order masuk) + modul Sales Portal.
+  Wire SalesOrderController: create/store new-order, history (my-orders).
+  Aturan cutoff waktu order §7.5, partial fulfillment & lost sales §7.3.
+
+FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
+  Migration: delivery_notes, delivery_proofs
+  Ruang lingkup: docs/1 §6.5 (bagian proses gudang). Wire OutboundController
+  penuh: approval, picking batching, picking, generate surat jalan, verifikasi
+  bukti kirim.
+
+FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
+  Migration: sales_returns, sales_return_details,
+             add_sales_return_fk_to_inventory_stocks_table (FK susulan)
+  Ruang lingkup: docs/1 §6.10 — PERHATIKAN tabel terminologi: Sales
+  melaporkan PENOLAKAN (SalesOrderController::reportReturn), gudang yang
+  memproses RETUR (InboundController::returnsIndex/processReturn). Jangan
+  tertukar istilah di kode maupun pesan UI.
+
+FASE 8 — Billing (Penagihan)
+  Migration: customer_billings, billing_payments
+  Ruang lingkup: docs/1 §6.6, §7.4. Wire BillingController. Overdue
+  customer = PERINGATAN VISUAL saja, BUKAN blokir order (lihat docs/1 §6.6,
+  keputusan yang sudah dikonfirmasi user sebelumnya).
+
+FASE 9 — Tracking, Notifikasi Real-time, Audit Log
+  Migration: order_trackings, notifications, audit_logs
+  Ruang lingkup: docs/1 §6.8, §6.9. Wire NotificationController + broadcast
+  via Soketi (sudah jalan di docker-compose). Audit log mencatat aksi
+  sensitif (create/update/deactivate user, approve order, dst).
+
+FASE 10 — Pengaturan Sistem & Penomoran Dokumen
+  Migration: system_settings, document_sequences
+  Ruang lingkup: wire app/Http/Controllers/Wms/AdminController::sequence()
+  (view resources/views/wms/admin/sequence.blade.php sudah ada, masih dummy)
+  ke tabel document_sequences untuk penomoran otomatis SJ/faktur/dsb.
+
+FASE 11 — Dashboard & Laporan
+  Ruang lingkup: docs/1 §6.7. Wire DashboardController (admin/produksi/
+  operator) dan ReportController ke query agregat dari tabel-tabel yang
+  sudah dibangun Fase 1-10 — bukan angka statis.
+
+FASE 12 — E-POD (Electronic Proof of Delivery)
+  Ruang lingkup: pastikan EpodController::show/confirm terhubung ke
+  delivery_proofs (Fase 6) secara konsisten dari sisi customer-facing.
+
+FASE 13 — Pengujian End-to-End & Pengerasan
+  Jalankan 5 alur end-to-end penuh (order -> inbound -> putaway -> outbound
+  -> billing, dst — rujuk laporan onboarding sebelumnya bila ada). Tambah
+  test regresi lintas modul yang belum tercakup test per-fase.
+
+FASE 14 — Finalisasi CI/CD & Persiapan Go-Live
+  Validasi pipeline docs/6 end-to-end untuk seluruh modul baru. Hapus/pagari
+  total Role Switcher dev-only (docs/0 §5.3) untuk production. Review
+  keamanan §8.2 dan performa §8.1 PRD sebelum dianggap selesai.
+
+MULAI DARI: verifikasi ulang status Fase 0 di atas masih akurat (jalankan
+`git log --oneline -5` dan `php artisan migrate:status`), lalu mulai FASE 1.
+Jangan mulai menulis kode sebelum langkah verifikasi ini dan pembacaan
+dokumen di atas selesai.
+```
+
+---
+
+## Catatan untuk Alfian (bukan bagian prompt, boleh dihapus sebelum dipakai)
+
+- **Kenapa Autentikasi jadi Fase 1, bukan paling akhir?** Karena `CurrentActor` eksplisit adalah alat sementara (per catatan di `docs/0` §5.3), dan hampir semua fase berikutnya butuh "siapa aktor saat ini" yang valid. Lebih murah menggantinya lebih awal daripada merapikan puluhan tempat pemanggilan nanti.
+- **Kenapa `departments` tidak muncul di urutan migration docs/2 §8?** Karena tabel itu ditambahkan belakangan atas permintaan Anda (di luar rencana awal dokumen) — sudah beres di Fase 0, tidak perlu tindakan lagi, saya cantumkan di bagian "STATUS SAAT INI" supaya sesi baru tidak bingung kenapa jumlah tabelnya tidak cocok dengan dokumen.
+- **Soal checkpoint report:** sudah diubah sesuai keputusan Anda — Opus **melapor lalu BERHENTI TOTAL**, menunggu kata persetujuan eksplisit sebelum menyentuh fase berikutnya. Ini lebih lambat tapi lebih aman: setiap fase bisa Anda review dulu (termasuk cek langsung ke database via psql/DBeaver) sebelum fase berikutnya menumpuk di atasnya.
+- **Estimasi skala:** ini ~14 fase, masing-masing kira-kira setara dengan modul User Management yang baru selesai (migration+model+controller+view+test). Dengan mode tunggu-approve, ini realistis berarti ~14 kali jeda percakapan terpisah. Dokumen ini sengaja dibuat self-contained (menyebutkan status terkini secara eksplisit) supaya sesi baru — atau sesi lanjutan setelah approve Anda — bisa langsung lanjut tanpa kehilangan konteks.
+- **Belum dijawab:** branch `backend/feature-user-management` saat ini hanya ada di lokal, belum di-push ke GitHub (`git checkout -b` adalah operasi lokal murni, push adalah langkah terpisah yang belum dijalankan). Putuskan dulu apakah mau di-push/merge sebelum FASE 1 dimulai, supaya riwayat branch per-fase nanti rapi sejak awal.
