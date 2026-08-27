@@ -34,10 +34,18 @@ STATUS SAAT INI (jangan dikerjakan ulang):
   warehouses, plus kolom manajemen user di tabel users. Controller
   app/Http/Controllers/Wms/UserController.php, view
   resources/views/wms/admin/users.blade.php, 21 feature test — semua hijau.
-- Login/session SUNGGUHAN belum ada. Yang ada sekarang adalah
-  app/Support/CurrentActor.php, jembatan sementara (auth()->user() -> query
-  param ?as=<slug> -> fallback Super Admin seed) yang HARUS diganti dengan
-  autentikasi nyata di Fase 1, bukan dipakai selamanya (lihat docs/0 §5.3).
+- Fase 1 "Autentikasi Nyata" SUDAH SELESAI (PR #2 + #3, merged ke develop):
+  login/logout sungguhan (AuthController), progressive lockout 3x gagal ->
+  5/10/30/60/120 menit, max 2 device + idle timeout 1 jam (TrackUserSession),
+  pemisahan portal WMS vs Sales (EnsurePortalAccess), tabel user_sessions dan
+  login_attempts. Role Switcher di navbar SUDAH DIHAPUS. 41 test hijau.
+- CurrentActor tetap ada sebagai satu-satunya penentu aktor, tapi jalur
+  utamanya kini auth()->user() sungguhan; jalur ?as=<slug> dipagari
+  app()->environment('production') dan praktis tak terjangkau lewat HTTP.
+- Verifikasi Anti-Bot (Google reCAPTCHA v2, PRD v1.2 F-AUTH-02) BELUM
+  terpasang — widget-nya nanti menyatu di form login yang sama (BUKAN halaman
+  terpisah), dan kegagalannya masuk counter lockout yang sama dengan password
+  salah. MFA/TOTP sudah DIHAPUS TOTAL dari rencana; jangan hidupkan lagi.
 - SEMUA controller Wms/Sales lain (Inbound, Inventory, Outbound, Billing,
   Master, SalesOrder, Notification, Report, Epod) MASIH mengembalikan
   data dummy/hardcoded ke view. Belum ada migration untuk tabel bisnisnya.
@@ -99,7 +107,7 @@ ATURAN KERJA WAJIB (baca sampai habis, ini yang paling penting):
    - Role::scopeAssignableBy() untuk menyembunyikan/menolak akses ke slug
      super_admin dari non-Super-Admin
    - User::scopeSearch() dengan ILIKE (PostgreSQL, case-insensitive)
-   - cast 'encrypted' untuk kolom sensitif (contoh: google2fa_secret)
+   - cast 'encrypted' untuk kolom sensitif bila kelak ada (saat ini tidak ada)
    - soft deletes untuk tabel transaksional yang butuh jejak audit
      (lihat docs/2 §6 strategi archival)
    - Pint dijalankan SEBELUM commit, bukan sesudah CI menegur
@@ -124,14 +132,17 @@ PETA FASE (urut, jangan diacak):
 
 FASE 0 — SELESAI, jangan diulang. (Roles/Departments/Warehouses/Users)
 
-FASE 1 — Autentikasi Nyata (Login, Session, Lockout)
-  Migration: user_sessions, login_attempts
-  Ruang lingkup: docs/1 §6.1. Halaman login, logout, hash password check,
-  failed_login_attempts + locked_until (sudah ada kolomnya di users dari
-  Fase 0), middleware auth per-route menggantikan bypass sementara.
-  CurrentActor::class tetap ada sebagai API, tapi jalur utamanya sekarang
-  auth()->user() sungguhan — jalur ?as=<slug> tetap untuk dev, DIPAGARI
-  supaya hanya aktif saat APP_ENV != production.
+FASE 1 — SELESAI, jangan diulang. (Login, Session, Lockout, Portal split)
+
+FASE 1b — Verifikasi Anti-Bot (Google reCAPTCHA v2)
+  Migration: tidak ada (reCAPTCHA tidak menyimpan state per-user).
+  Ruang lingkup: docs/1 §6.1 F-AUTH-02. Pasang widget reCAPTCHA v2 di
+  resources/views/auth/login.blade.php, verifikasi token ke Google siteverify
+  di dalam AuthController::login() pada request POST /login yang SAMA —
+  bukan halaman/rute terpisah. Token gagal diperlakukan seperti kredensial
+  salah: pesan generik yang sama + registerFailedLogin() (counter lockout
+  bersama). Kunci disimpan sebagai RECAPTCHA_SITE_KEY / RECAPTCHA_SECRET_KEY
+  di .env; di test WAJIB di-fake/bypass supaya suite tidak memanggil Google.
 
 FASE 2 — Master Data: Produk & Pelanggan
   Migration: product_categories, products, locations, customers
@@ -205,14 +216,14 @@ FASE 13 — Pengujian End-to-End & Pengerasan
   test regresi lintas modul yang belum tercakup test per-fase.
 
 FASE 14 — Finalisasi CI/CD & Persiapan Go-Live
-  Validasi pipeline docs/6 end-to-end untuk seluruh modul baru. Hapus/pagari
-  total Role Switcher dev-only (docs/0 §5.3) untuk production. Review
-  keamanan §8.2 dan performa §8.1 PRD sebelum dianggap selesai.
+  Validasi pipeline docs/6 end-to-end untuk seluruh modul baru. Pastikan
+  jalur dev ?as=<slug> di CurrentActor benar-benar mati di production.
+  Review keamanan §8.2 dan performa §8.1 PRD sebelum dianggap selesai.
 
-MULAI DARI: verifikasi ulang status Fase 0 di atas masih akurat (jalankan
-`git log --oneline -5` dan `php artisan migrate:status`), lalu mulai FASE 1.
-Jangan mulai menulis kode sebelum langkah verifikasi ini dan pembacaan
-dokumen di atas selesai.
+MULAI DARI: verifikasi ulang bagian "STATUS SAAT INI" di atas masih akurat
+(jalankan `git log --oneline -5` dan `php artisan migrate:status`), lalu
+mulai fase pertama yang BELUM selesai. Jangan mulai menulis kode sebelum
+langkah verifikasi ini dan pembacaan dokumen di atas selesai.
 ```
 
 ---

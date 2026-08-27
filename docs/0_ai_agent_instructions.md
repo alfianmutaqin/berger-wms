@@ -19,12 +19,14 @@ Sistem ini adalah **Warehouse Management System (WMS) terintegrasi dengan Sales 
 | Database | PostgreSQL 16+ | Transaksional, konkurensi tinggi |
 | Cache | Redis 7 | Session, cache query, real-time notification |
 | Queue | Redis (`queue:work`); Horizon menyusul | Background jobs |
-| Auth MFA | Google Authenticator (TOTP) | Untuk semua role |
+| Verifikasi Anti-Bot | Google reCAPTCHA v2 | Widget di form login, semua role |
 | Realtime | Laravel Echo + **Soketi** | Notifikasi real-time dengan suara |
 | Infra | Docker + CI/CD (GitHub Actions) | Containerized deployment |
 
 > [!NOTE]
-> **Status dependensi (per 26 Agustus 2026).** `composer.json` saat ini masih skeleton Laravel. Paket berikut **belum terpasang** dan harus ditambahkan saat modul terkait dikerjakan: Livewire 3, `pragmarx/google2fa-laravel`, `maatwebsite/excel`, DomPDF/Snappy, Laravel Horizon, dan paket RBAC. Jangan berasumsi paket-paket ini sudah tersedia.
+> **Status dependensi (per 27 Agustus 2026).** `composer.json` masih mendekati skeleton Laravel. Paket berikut **belum terpasang** dan harus ditambahkan saat modul terkait dikerjakan: Livewire 3, paket reCAPTCHA (verifikasi anti-bot), `maatwebsite/excel`, DomPDF/Snappy, Laravel Horizon, dan paket RBAC. Jangan berasumsi paket-paket ini sudah tersedia.
+>
+> `pragmarx/google2fa-laravel` **dihapus dari rencana** — MFA/TOTP diganti Google reCAPTCHA per PRD v1.2.
 
 ---
 
@@ -90,10 +92,10 @@ Portal Warehouse (Desktop-First):
 > |   |-- dashboard/  inbound/  inventory/  outbound/
 > |   `-- billing/  master/  admin/  reports/
 > |-- driver/epod.blade.php
-> `-- welcome.blade.php           # halaman login
+> `-- auth/login.blade.php        # halaman login (dulu welcome.blade.php)
 > ```
 >
-> **Ikuti struktur nyata di atas**, bukan struktur rencana di bawah. Folder `admin/` terpisah tidak dipakai — halaman admin berada di `wms/admin/` dan `wms/master/`. Belum ada folder `auth/` maupun `components/`; keduanya dibuat saat modul autentikasi dikerjakan.
+> **Ikuti struktur nyata di atas**, bukan struktur rencana di bawah. Folder `admin/` terpisah tidak dipakai — halaman admin berada di `wms/admin/` dan `wms/master/`. Folder `auth/` sudah ada sejak Fase 1 (berisi `login.blade.php`); folder `components/` belum dibuat.
 
 ```
 resources/views/
@@ -137,7 +139,6 @@ resources/views/
 â”‚   â””â”€â”€ settings/
 â”œâ”€â”€ auth/
 â”‚   â”œâ”€â”€ login.blade.php
-â”‚   â”œâ”€â”€ mfa-verify.blade.php
 â”‚   â””â”€â”€ locked.blade.php
 â””â”€â”€ components/                      # Blade components reusable
     â”œâ”€â”€ alert.blade.php
@@ -178,7 +179,6 @@ app/
 â”‚   â”œâ”€â”€ Controllers/
 â”‚   â”‚   â”œâ”€â”€ Auth/
 â”‚   â”‚   â”‚   â”œâ”€â”€ LoginController.php
-â”‚   â”‚   â”‚   â”œâ”€â”€ MfaController.php
 â”‚   â”‚   â”‚   â””â”€â”€ SessionController.php
 â”‚   â”‚   â”œâ”€â”€ Sales/                    # Controller portal Sales
 â”‚   â”‚   â”‚   â”œâ”€â”€ DashboardController.php
@@ -206,7 +206,6 @@ app/
 â”‚   â”‚       â””â”€â”€ SettingsController.php
 â”‚   â”œâ”€â”€ Middleware/
 â”‚   â”‚   â”œâ”€â”€ CheckRole.php
-â”‚   â”‚   â”œâ”€â”€ CheckMfa.php
 â”‚   â”‚   â”œâ”€â”€ EnforceMaxSessions.php
 â”‚   â”‚   â”œâ”€â”€ CheckOrderCutoff.php
 â”‚   â”‚   â”œâ”€â”€ CheckCustomerBlocked.php
@@ -383,7 +382,8 @@ main (production)
 | Stok DDP terpisah | Stok rusak/expired dipisah dari Good Stock, tidak pernah masuk Picking List |
 | Maker-Checker inbound | Operator put-away â†’ Logistik verifikasi â†’ Stok aktif |
 | Max 2 device per user | Session ketiga menendang session tertua |
-| MFA wajib | Semua role wajib Google Authenticator |
+| Verifikasi anti-bot | Semua role melewati Google reCAPTCHA di form login (bukan MFA/TOTP) |
+| Lockout login | 3 kali gagal (password atau anti-bot) -> terkunci 5/10/30/60/120 menit progresif |
 | Edit stok | Hanya Manager dan Super Admin melalui menu Stock |
 | Qty put-away | Operator **BOLEH** koreksi Qty Aktual (SKU & batch tetap terkunci); selisih dicatat untuk verifikasi Logistik |
 | Hak Manager | CRUD User + Pengaturan Dokumen. TIDAK boleh membuat/mengubah akun Super Admin |
