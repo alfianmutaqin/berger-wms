@@ -24,9 +24,9 @@ Sistem ini adalah **Warehouse Management System (WMS) terintegrasi dengan Sales 
 | Infra | Docker + CI/CD (GitHub Actions) | Containerized deployment |
 
 > [!NOTE]
-> **Status dependensi (per 27 Agustus 2026).** `composer.json` masih mendekati skeleton Laravel. Paket berikut **belum terpasang** dan harus ditambahkan saat modul terkait dikerjakan: Livewire 3, paket reCAPTCHA (verifikasi anti-bot), `maatwebsite/excel`, DomPDF/Snappy, Laravel Horizon, dan paket RBAC. Jangan berasumsi paket-paket ini sudah tersedia.
+> **Status dependensi (per 29 Agustus 2026).** `composer.json` masih mendekati skeleton Laravel. Paket berikut **belum terpasang** dan harus ditambahkan saat modul terkait dikerjakan: Livewire 3, `maatwebsite/excel`, DomPDF/Snappy, Laravel Horizon, dan paket RBAC. Jangan berasumsi paket-paket ini sudah tersedia.
 >
-> `pragmarx/google2fa-laravel` **dihapus dari rencana** — MFA/TOTP diganti Google reCAPTCHA per PRD v1.2.
+> `pragmarx/google2fa-laravel` **dihapus dari rencana** — MFA/TOTP diganti Google reCAPTCHA per PRD v1.2. Verifikasi reCAPTCHA (Fase 1b) TIDAK memakai package tambahan — cukup `Http::asForm()->post()` langsung ke endpoint siteverify Google (lihat `AuthController::verifyRecaptcha()`).
 
 ---
 

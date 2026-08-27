@@ -42,10 +42,15 @@ STATUS SAAT INI (jangan dikerjakan ulang):
 - CurrentActor tetap ada sebagai satu-satunya penentu aktor, tapi jalur
   utamanya kini auth()->user() sungguhan; jalur ?as=<slug> dipagari
   app()->environment('production') dan praktis tak terjangkau lewat HTTP.
-- Verifikasi Anti-Bot (Google reCAPTCHA v2, PRD v1.2 F-AUTH-02) BELUM
-  terpasang — widget-nya nanti menyatu di form login yang sama (BUKAN halaman
-  terpisah), dan kegagalannya masuk counter lockout yang sama dengan password
-  salah. MFA/TOTP sudah DIHAPUS TOTAL dari rencana; jangan hidupkan lagi.
+- Fase 1b "Verifikasi Anti-Bot" SUDAH SELESAI: widget Google reCAPTCHA v2
+  menyatu di form login yang sama (bukan halaman terpisah), diverifikasi
+  lewat Http::asForm()->post() langsung ke siteverify (tanpa package
+  tambahan) di AuthController::verifyRecaptcha(). Kegagalannya (kosong,
+  tidak dicentang, ditolak Google) masuk counter lockout yang sama dengan
+  password salah. Site key & secret key ada di .env (RECAPTCHA_SITE_KEY /
+  RECAPTCHA_SECRET_KEY), TIDAK ikut commit. Test memakai Http::fake() —
+  tidak pernah memanggil Google sungguhan. MFA/TOTP sudah DIHAPUS TOTAL dari
+  rencana; jangan hidupkan lagi.
 - SEMUA controller Wms/Sales lain (Inbound, Inventory, Outbound, Billing,
   Master, SalesOrder, Notification, Report, Epod) MASIH mengembalikan
   data dummy/hardcoded ke view. Belum ada migration untuk tabel bisnisnya.
@@ -134,15 +139,7 @@ FASE 0 — SELESAI, jangan diulang. (Roles/Departments/Warehouses/Users)
 
 FASE 1 — SELESAI, jangan diulang. (Login, Session, Lockout, Portal split)
 
-FASE 1b — Verifikasi Anti-Bot (Google reCAPTCHA v2)
-  Migration: tidak ada (reCAPTCHA tidak menyimpan state per-user).
-  Ruang lingkup: docs/1 §6.1 F-AUTH-02. Pasang widget reCAPTCHA v2 di
-  resources/views/auth/login.blade.php, verifikasi token ke Google siteverify
-  di dalam AuthController::login() pada request POST /login yang SAMA —
-  bukan halaman/rute terpisah. Token gagal diperlakukan seperti kredensial
-  salah: pesan generik yang sama + registerFailedLogin() (counter lockout
-  bersama). Kunci disimpan sebagai RECAPTCHA_SITE_KEY / RECAPTCHA_SECRET_KEY
-  di .env; di test WAJIB di-fake/bypass supaya suite tidak memanggil Google.
+FASE 1b — SELESAI, jangan diulang. (Verifikasi Anti-Bot / Google reCAPTCHA v2)
 
 FASE 2 — Master Data: Produk & Pelanggan
   Migration: product_categories, products, locations, customers
