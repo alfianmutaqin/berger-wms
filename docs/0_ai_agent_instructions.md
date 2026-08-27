@@ -401,14 +401,12 @@ main (production)
 | Retur | Modul retur **masuk scope** - lihat PRD 6.10 |
 | Transfer gudang | Transfer stok antar lokasi & antar gudang **masuk scope** - lihat PRD 6.4 F-INV-05 |
 
-### 5.3 Catatan Khusus - Role Switcher
+### 5.3 Catatan Khusus - Role Switcher (SELESAI DIHAPUS)
 
-> [!WARNING]
-> Dropdown **"Switch Role"** pada `resources/views/partials/navbar-top.blade.php` adalah **alat bantu pengembangan sementara**, dipakai untuk meninjau tampilan tiap role tanpa berganti akun selama fase mockup.
+> [!NOTE]
+> Dropdown **"Switch Role"** yang sebelumnya ada di `resources/views/partials/navbar-top.blade.php` sudah **dihapus** pada Fase 1 (Autentikasi Nyata — lihat `docs/7_master_build_prompt.md`). Peran kini sepenuhnya ditentukan oleh `auth()->user()->role` lewat login sungguhan (`AuthController`) dan ditegakkan oleh middleware `auth`, `session.track`, dan `portal:{wms|sales}` (lihat `bootstrap/app.php` dan `routes/web.php`).
 >
-> - **JANGAN** dijadikan dasar logika otorisasi apa pun.
-> - **JANGAN** menambah pola `request('role')` baru di Blade maupun Controller. Pola ini rawan *privilege escalation* begitu autentikasi nyata aktif.
-> - Komponen ini **WAJIB DIHAPUS** pada Fase 4 (sebelum Go-Live), digantikan `auth()->user()->role` + middleware RBAC.
+> Jalur `?as=<slug-role>` di `App\Support\CurrentActor` dipertahankan sebagai fallback pengembangan, tapi kini dipagari `app()->environment('production')` dan pada praktiknya sudah tidak terjangkau lewat HTTP biasa — rute wms/sales sudah dibungkus middleware `auth` sehingga tamu ditolak sebelum sempat mencapai jalur tersebut.
 
 ---
 
