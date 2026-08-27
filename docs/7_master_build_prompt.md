@@ -51,6 +51,12 @@ STATUS SAAT INI (jangan dikerjakan ulang):
   RECAPTCHA_SECRET_KEY), TIDAK ikut commit. Test memakai Http::fake() —
   tidak pernah memanggil Google sungguhan. MFA/TOTP sudah DIHAPUS TOTAL dari
   rencana; jangan hidupkan lagi.
+- RBAC sidebar & route SUDAH SELESAI: App\Support\Permission adalah matriks
+  tunggal (fitur -> daftar role) yang dipakai bersama oleh sidebar (@can di
+  layouts/wms.blade.php) dan middleware route (can:<fitur> di routes/web.php).
+  Menambah menu/route baru WAJIB lewat matriks ini, jangan menulis pengecekan
+  role langsung di Blade atau controller. Portal Sales memakai navigasi
+  hibrida: bottom nav < 992px, sidebar >= 992px (docs/4 §3.1).
 - SEMUA controller Wms/Sales lain (Inbound, Inventory, Outbound, Billing,
   Master, SalesOrder, Notification, Report, Epod) MASIH mengembalikan
   data dummy/hardcoded ke view. Belum ada migration untuk tabel bisnisnya.
