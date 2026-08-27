@@ -208,7 +208,6 @@ app/
 â”‚   â”‚   â”œâ”€â”€ CheckRole.php
 â”‚   â”‚   â”œâ”€â”€ EnforceMaxSessions.php
 â”‚   â”‚   â”œâ”€â”€ CheckOrderCutoff.php
-â”‚   â”‚   â”œâ”€â”€ CheckCustomerBlocked.php
 â”‚   â”‚   â””â”€â”€ TrackAuditLog.php
 â”‚   â””â”€â”€ Requests/                    # Form Request validation
 â”‚       â”œâ”€â”€ StoreInboundRequest.php
