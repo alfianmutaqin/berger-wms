@@ -14,14 +14,17 @@ Sistem ini adalah **Warehouse Management System (WMS) terintegrasi dengan Sales 
 ### Teknologi Utama
 | Layer | Teknologi | Catatan |
 |---|---|---|
-| Backend Engine | Laravel 11/12+ (PHP 8.3+) | Eloquent ORM, Middleware, Queue |
-| Frontend | Laravel Blade + Livewire 3 + Bootstrap 5 | Tidak menggunakan SPA/React/Vue |
+| Backend Engine | **Laravel 13** (PHP 8.3+) | Eloquent ORM, Middleware, Queue |
+| Frontend | Laravel Blade + Livewire 3 + Bootstrap 5.3 | Tidak menggunakan SPA/React/Vue |
 | Database | PostgreSQL 16+ | Transaksional, konkurensi tinggi |
-| Cache | Redis | Session, cache query, real-time notification |
-| Queue | Laravel Horizon + Redis | Background jobs |
+| Cache | Redis 7 | Session, cache query, real-time notification |
+| Queue | Redis (`queue:work`); Horizon menyusul | Background jobs |
 | Auth MFA | Google Authenticator (TOTP) | Untuk semua role |
-| Realtime | Laravel Echo + Laravel Reverb | Notifikasi real-time dengan suara |
+| Realtime | Laravel Echo + **Soketi** | Notifikasi real-time dengan suara |
 | Infra | Docker + CI/CD (GitHub Actions) | Containerized deployment |
+
+> [!NOTE]
+> **Status dependensi (per 26 Agustus 2026).** `composer.json` saat ini masih skeleton Laravel. Paket berikut **belum terpasang** dan harus ditambahkan saat modul terkait dikerjakan: Livewire 3, `pragmarx/google2fa-laravel`, `maatwebsite/excel`, DomPDF/Snappy, Laravel Horizon, dan paket RBAC. Jangan berasumsi paket-paket ini sudah tersedia.
 
 ---
 
@@ -69,6 +72,29 @@ Portal Warehouse (Desktop-First):
 ```
 
 **Konvensi Penamaan File Blade:**
+
+> [!IMPORTANT]
+> **Struktur di bawah ini adalah rencana awal dan SUDAH TIDAK SESUAI dengan kode yang berjalan.** Struktur nyata di repo saat ini:
+>
+> ```
+> resources/views/
+> |-- layouts/
+> |   |-- soms.blade.php          # Layout Portal Sales   (bukan app-sales)
+> |   `-- wms.blade.php           # Layout Portal Warehouse (bukan app-warehouse)
+> |-- partials/                   # (bukan layouts/partials)
+> |   |-- head.blade.php
+> |   |-- navbar-top.blade.php    # DIPAKAI BERSAMA kedua portal
+> |   `-- scripts.blade.php
+> |-- sales/                      # dashboard, new_order, my_orders
+> |-- wms/                        # (bukan warehouse/)
+> |   |-- dashboard/  inbound/  inventory/  outbound/
+> |   `-- billing/  master/  admin/  reports/
+> |-- driver/epod.blade.php
+> `-- welcome.blade.php           # halaman login
+> ```
+>
+> **Ikuti struktur nyata di atas**, bukan struktur rencana di bawah. Folder `admin/` terpisah tidak dipakai — halaman admin berada di `wms/admin/` dan `wms/master/`. Belum ada folder `auth/` maupun `components/`; keduanya dibuat saat modul autentikasi dikerjakan.
+
 ```
 resources/views/
 â”œâ”€â”€ layouts/
@@ -348,14 +374,20 @@ main (production)
 |---|---|
 | Sales tidak boleh lihat stok | Sistem Semi-Blind: hanya indikator âœ…âš ï¸âŒ, bukan angka |
 | Order cutoff jam 15:00 | Setelah jam 15:00 WIB, form order terkunci |
-| Pembayaran 30/60/90 hari | Harus masuk menu billing, blokir order jika belum bayar |
+| Pembayaran 30/60/90 hari | Masuk menu billing. Customer menunggak **DITANDAI**, **BUKAN diblokir** - order tetap boleh dibuat |
+| Customer dibuat Admin | Sales **tidak** punya menu pengajuan customer. Manager/Super Admin membuat langsung via Master Customer |
 | Cash/Transfer | Langsung complete tanpa billing |
 | Palet otomatis | Qty dipecah otomatis berdasarkan kapasitas per UoM |
-| FIFO wajib | Stok tertua HARUS keluar duluan |
+| FIFO wajib | Stok tertua HARUS keluar duluan; stok `ddp`/`expired` WAJIB dilewati |
+| Expiry wajib | Cat **memiliki** masa simpan (default 30 bulan dari tanggal produksi) |
+| Stok DDP terpisah | Stok rusak/expired dipisah dari Good Stock, tidak pernah masuk Picking List |
 | Maker-Checker inbound | Operator put-away â†’ Logistik verifikasi â†’ Stok aktif |
 | Max 2 device per user | Session ketiga menendang session tertua |
 | MFA wajib | Semua role wajib Google Authenticator |
 | Edit stok | Hanya Manager dan Super Admin melalui menu Stock |
+| Qty put-away | Operator **BOLEH** koreksi Qty Aktual (SKU & batch tetap terkunci); selisih dicatat untuk verifikasi Logistik |
+| Hak Manager | CRUD User + Pengaturan Dokumen. TIDAK boleh membuat/mengubah akun Super Admin |
+| Hak Super Admin | Akses penuh Portal Warehouse termasuk tugas operasional. TIDAK punya akses Portal Sales |
 
 ### 5.2 Batasan Teknis
 
@@ -364,11 +396,19 @@ main (production)
 | Upload file | Hanya PNG/JPG, max 5MB, atau langsung dari kamera |
 | No SPA | Tidak menggunakan React, Vue, atau framework SPA |
 | No external API | Tidak ada integrasi ke sistem keuangan atau pihak ketiga |
-| No barcode | Tidak menggunakan scanner barcode |
-| No expiry tracking | Cat tidak memiliki tanggal kadaluarsa |
 | No backorder | Sisa pesanan yang tidak terpenuhi = lost sales |
-| No retur (fase 1) | Modul retur dikembangkan setelah sistem utama 80-90% |
-| No transfer gudang | Setiap gudang independen, filter by dispatch code |
+| QR lokasi rak | Scan QR pada rak DIGUNAKAN untuk put-away & picking (bukan barcode produk) |
+| Retur | Modul retur **masuk scope** - lihat PRD 6.10 |
+| Transfer gudang | Transfer stok antar lokasi & antar gudang **masuk scope** - lihat PRD 6.4 F-INV-05 |
+
+### 5.3 Catatan Khusus - Role Switcher
+
+> [!WARNING]
+> Dropdown **"Switch Role"** pada `resources/views/partials/navbar-top.blade.php` adalah **alat bantu pengembangan sementara**, dipakai untuk meninjau tampilan tiap role tanpa berganti akun selama fase mockup.
+>
+> - **JANGAN** dijadikan dasar logika otorisasi apa pun.
+> - **JANGAN** menambah pola `request('role')` baru di Blade maupun Controller. Pola ini rawan *privilege escalation* begitu autentikasi nyata aktif.
+> - Komponen ini **WAJIB DIHAPUS** pada Fase 4 (sebelum Go-Live), digantikan `auth()->user()->role` + middleware RBAC.
 
 ---
 
