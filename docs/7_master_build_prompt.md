@@ -162,9 +162,22 @@ FASE 2 — Master Data: Produk & Pelanggan
           gudang dibiarkan NULL, bukan ditebak.
         - Product Type "Tidak ditemukan" dari ERP -> category_id NULL, jangan
           dibuatkan kategori bernama itu.
-  2b. Pelanggan — BELUM. Migration customers + locations, wire
-      MasterController::customers. locations = rak/bin gudang, dipakai
-      Fase 3 (putaway).
+  2b. Pelanggan — SELESAI. Tabel customers + payment_terms,
+      CustomerController, halaman Master Pelanggan terhubung DB.
+      Catatan penting untuk fase berikutnya:
+        - Kolom mengikuti ekspor ERP: code (No./id), ship_to_code, name,
+          phone, contact_name, email, address, address_2, territory_code.
+        - address & address_2 disimpan TERPISAH (setara ekspor ERP) tapi
+          ditampilkan digabung lewat accessor full_address.
+        - customers TIDAK punya default_payment_term maupun credit_limit.
+          Termin dipilih Sales per-pesanan, bukan sifat tetap pelanggan —
+          keduanya tinggal di tabel payment_terms. Ada test regresi yang
+          menggagalkan build bila kolom itu menyelinap kembali.
+        - payment_terms sudah terisi (cash/transfer/tempo_30/60/90) dan siap
+          dipakai dropdown form Buat Pesanan pada Fase 5.
+        - MasterController DIHAPUS; kedua halaman master kini punya
+          controller sendiri (ProductController, CustomerController).
+  2c. locations (rak/bin gudang) — BELUM. Dibutuhkan Fase 3 (putaway).
 
 FASE 3 — Inbound (Barang Masuk)
   Migration: inbound_headers, inbound_details
