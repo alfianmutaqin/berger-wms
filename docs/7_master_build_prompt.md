@@ -148,10 +148,51 @@ FASE 1 — SELESAI, jangan diulang. (Login, Session, Lockout, Portal split)
 FASE 1b — SELESAI, jangan diulang. (Verifikasi Anti-Bot / Google reCAPTCHA v2)
 
 FASE 2 — Master Data: Produk & Pelanggan
-  Migration: product_categories, products, locations, customers
-  Ruang lingkup: docs/1 §6.2. Wire MasterController (customers, products).
-  products.shelf_life_months dipakai Fase 4 (expiry). locations = rak/bin
-  gudang, dipakai Fase 3 (putaway).
+  2a. Produk — SELESAI. Tabel product_categories + products, ProductController,
+      halaman Master Produk terhubung DB, App\Support\PalletCapacity.
+      Catatan penting untuk fase berikutnya:
+        - products TIDAK punya kolom stok. Kolom "Inventory" pada ekspor ERP
+          adalah hasil SUM; stok tinggal di inventory_stocks (Fase 4). Ada test
+          regresi yang menggagalkan build bila kolom stok menyelinap masuk.
+        - sku = 'ID1-F' + product_code + shade_code + pack_code (lihat
+          Product::buildSku). Ketiga komponen tetap disimpan terpisah.
+        - max_qty_per_pallet NULLABLE dan dihitung dari PalletCapacity memakai
+          pack_size (ukuran WADAH), BUKAN unit_volume (isi sebenarnya). Pail
+          "20Ltr" berisi 19.4 L tetap 27 pcs/palet. Ukuran di luar aturan
+          gudang dibiarkan NULL, bukan ditebak.
+        - Product Type "Tidak ditemukan" dari ERP -> category_id NULL, jangan
+          dibuatkan kategori bernama itu.
+  2b. Pelanggan — SELESAI. Tabel customers + payment_terms,
+      CustomerController, halaman Master Pelanggan terhubung DB.
+      Catatan penting untuk fase berikutnya:
+        - Kolom mengikuti ekspor ERP: code (No./id), ship_to_code, name,
+          phone, contact_name, email, address, address_2, territory_code.
+        - address & address_2 disimpan TERPISAH (setara ekspor ERP) tapi
+          ditampilkan digabung lewat accessor full_address.
+        - customers TIDAK punya default_payment_term maupun credit_limit.
+          Termin dipilih Sales per-pesanan, bukan sifat tetap pelanggan —
+          keduanya tinggal di tabel payment_terms. Ada test regresi yang
+          menggagalkan build bila kolom itu menyelinap kembali.
+        - payment_terms sudah terisi (cash/transfer/tempo_30/60/90) dan siap
+          dipakai dropdown form Buat Pesanan pada Fase 5.
+        - MasterController DIHAPUS; kedua halaman master kini punya
+          controller sendiri (ProductController, CustomerController).
+  2d. Impor Excel — SELESAI. ImportController + App\Support\Import\*
+      (SpreadsheetReader, Importer, ProductImporter, CustomerImporter).
+      Catatan penting:
+        - Memakai phpoffice/phpspreadsheet LANGSUNG. maatwebsite/excel belum
+          mendukung Laravel 13; composer justru menawarkan v1.1.5 (2014) yang
+          bergantung pada paket yang sudah ditinggalkan. Jangan pasang itu.
+        - Alur DUA TAHAP: preview (tidak menyentuh DB sama sekali) lalu store.
+          Impor bersifat memperbarui data lama, jadi pratinjau adalah pengaman
+          agar berkas keliru tidak menimpa data yang benar.
+        - Judul kolom dicocokkan setelah dinormalkan ("Base Unit of Measure"
+          -> base_unit_of_measure), sehingga beda huruf besar/kecil dan spasi
+          tidak menggagalkan impor.
+        - Kolom Inventory pada ekspor ERP DIABAIKAN (stok bukan data master).
+        - Impor ulang TIDAK menghidupkan kembali data yang sengaja
+          dinonaktifkan Manager.
+  2c. locations (rak/bin gudang) — BELUM. Dibutuhkan Fase 3 (putaway).
 
 FASE 3 — Inbound (Barang Masuk)
   Migration: inbound_headers, inbound_details
