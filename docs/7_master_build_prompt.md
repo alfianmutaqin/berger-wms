@@ -192,7 +192,19 @@ FASE 2 — Master Data: Produk & Pelanggan
         - Kolom Inventory pada ekspor ERP DIABAIKAN (stok bukan data master).
         - Impor ulang TIDAK menghidupkan kembali data yang sengaja
           dinonaktifkan Manager.
-  2c. locations (rak/bin gudang) — BELUM. Dibutuhkan Fase 3 (putaway).
+  2c. Lokasi Rak — SELESAI. Tabel locations, LocationController, halaman
+      Master Lokasi Rak, LocationSeeder (2.264 bin untuk WH-01).
+      Catatan penting untuk Fase 3 (put-away):
+        - Kode berpola [Rak]-[Level]-[Sel]; rack/level/cell DITURUNKAN dari
+          code lewat Location::parseCode, jadi tidak bisa tidak sinkron.
+        - level & cell bertipe ANGKA, bukan string. Selalu urutkan dengan
+          scopeInStorageOrder() — mengurutkan lewat string code menaruh
+          B-01-10 sebelum B-01-02.
+        - code unik PER GUDANG (warehouse_id + code), bukan global.
+        - Zona (Fast/Slow/Middle Moving Area) menentukan strategi put-away.
+          Ejaan ERP "Midle" dinormalkan Location::normalizeZone().
+        - Tidak ada Rak "A" pada denah gudang. Level 4-5 memuat lebih banyak
+          sel daripada Level 1-3 di sebagian besar rak.
 
 FASE 3 — Inbound (Barang Masuk)
   Migration: inbound_headers, inbound_details
