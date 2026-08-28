@@ -148,10 +148,19 @@ FASE 1 — SELESAI, jangan diulang. (Login, Session, Lockout, Portal split)
 FASE 1b — SELESAI, jangan diulang. (Verifikasi Anti-Bot / Google reCAPTCHA v2)
 
 FASE 2 — Master Data: Produk & Pelanggan
-  Migration: product_categories, products, locations, customers
-  Ruang lingkup: docs/1 §6.2. Wire MasterController (customers, products).
-  products.shelf_life_months dipakai Fase 4 (expiry). locations = rak/bin
-  gudang, dipakai Fase 3 (putaway).
+  2a. Produk — SELESAI. Tabel product_categories + products, ProductController,
+      halaman Master Produk terhubung DB, App\Support\PalletCapacity.
+      Catatan penting untuk fase berikutnya:
+        - products TIDAK punya kolom stok. Kolom "Inventory" pada ekspor ERP
+          adalah hasil SUM; stok tinggal di inventory_stocks (Fase 4). Ada test
+          regresi yang menggagalkan build bila kolom stok menyelinap masuk.
+        - sku = 'ID1-F' + product_code + shade_code + pack_code (lihat
+          Product::buildSku). Ketiga komponen tetap disimpan terpisah.
+        - max_qty_per_pallet NULLABLE dan dihitung dari PalletCapacity;
+          ukuran di luar aturan gudang dibiarkan NULL, bukan ditebak.
+  2b. Pelanggan — BELUM. Migration customers + locations, wire
+      MasterController::customers. locations = rak/bin gudang, dipakai
+      Fase 3 (putaway).
 
 FASE 3 — Inbound (Barang Masuk)
   Migration: inbound_headers, inbound_details
