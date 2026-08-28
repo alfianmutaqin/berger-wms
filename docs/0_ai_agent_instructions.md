@@ -24,7 +24,17 @@ Sistem ini adalah **Warehouse Management System (WMS) terintegrasi dengan Sales 
 | Infra | Docker + CI/CD (GitHub Actions) | Containerized deployment |
 
 > [!NOTE]
-> **Status dependensi (per 29 Agustus 2026).** `composer.json` masih mendekati skeleton Laravel. Paket berikut **belum terpasang** dan harus ditambahkan saat modul terkait dikerjakan: Livewire 3, `maatwebsite/excel`, DomPDF/Snappy, Laravel Horizon, dan paket RBAC. Jangan berasumsi paket-paket ini sudah tersedia.
+> **Status dependensi (per 31 Agustus 2026).** Paket berikut **belum terpasang** dan harus ditambahkan saat modul terkait dikerjakan: Livewire 3, DomPDF/Snappy, Laravel Horizon, dan paket RBAC. Jangan berasumsi paket-paket ini sudah tersedia.
+>
+> **Sudah terpasang:** `phpoffice/phpspreadsheet` untuk impor Excel.
+>
+> **`maatwebsite/excel` DIHAPUS dari rencana.** Versi modernnya belum mendukung Laravel 13 — composer justru menawarkan v1.1.5 (rilis 2014) yang bergantung pada `phpoffice/phpexcel` yang sudah ditinggalkan. Dipakai PhpSpreadsheet langsung, yang memang mesin di balik paket tersebut.
+>
+> **Composer dijalankan lewat container sementara**, karena tidak ada di image php-fpm:
+> ```bash
+> MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd)":/app -w /app composer:2.8 require <paket>
+> ```
+> `composer.json` memuat `config.platform` yang mendeklarasikan PHP 8.3 beserta ekstensi runtime (gd, zip, mbstring, simplexml). Tanpa itu composer akan memeriksa ekstensi milik *container composer* — yang tidak punya `ext-gd` — lalu menolak paket yang sebenarnya kompatibel dengan runtime kita.
 >
 > `pragmarx/google2fa-laravel` **dihapus dari rencana** — MFA/TOTP diganti Google reCAPTCHA per PRD v1.2. Verifikasi reCAPTCHA (Fase 1b) TIDAK memakai package tambahan — cukup `Http::asForm()->post()` langsung ke endpoint siteverify Google (lihat `AuthController::verifyRecaptcha()`).
 

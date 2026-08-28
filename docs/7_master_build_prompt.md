@@ -177,6 +177,21 @@ FASE 2 — Master Data: Produk & Pelanggan
           dipakai dropdown form Buat Pesanan pada Fase 5.
         - MasterController DIHAPUS; kedua halaman master kini punya
           controller sendiri (ProductController, CustomerController).
+  2d. Impor Excel — SELESAI. ImportController + App\Support\Import\*
+      (SpreadsheetReader, Importer, ProductImporter, CustomerImporter).
+      Catatan penting:
+        - Memakai phpoffice/phpspreadsheet LANGSUNG. maatwebsite/excel belum
+          mendukung Laravel 13; composer justru menawarkan v1.1.5 (2014) yang
+          bergantung pada paket yang sudah ditinggalkan. Jangan pasang itu.
+        - Alur DUA TAHAP: preview (tidak menyentuh DB sama sekali) lalu store.
+          Impor bersifat memperbarui data lama, jadi pratinjau adalah pengaman
+          agar berkas keliru tidak menimpa data yang benar.
+        - Judul kolom dicocokkan setelah dinormalkan ("Base Unit of Measure"
+          -> base_unit_of_measure), sehingga beda huruf besar/kecil dan spasi
+          tidak menggagalkan impor.
+        - Kolom Inventory pada ekspor ERP DIABAIKAN (stok bukan data master).
+        - Impor ulang TIDAK menghidupkan kembali data yang sengaja
+          dinonaktifkan Manager.
   2c. locations (rak/bin gudang) — BELUM. Dibutuhkan Fase 3 (putaway).
 
 FASE 3 — Inbound (Barang Masuk)
