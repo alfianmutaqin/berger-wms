@@ -156,8 +156,12 @@ FASE 2 — Master Data: Produk & Pelanggan
           regresi yang menggagalkan build bila kolom stok menyelinap masuk.
         - sku = 'ID1-F' + product_code + shade_code + pack_code (lihat
           Product::buildSku). Ketiga komponen tetap disimpan terpisah.
-        - max_qty_per_pallet NULLABLE dan dihitung dari PalletCapacity;
-          ukuran di luar aturan gudang dibiarkan NULL, bukan ditebak.
+        - max_qty_per_pallet NULLABLE dan dihitung dari PalletCapacity memakai
+          pack_size (ukuran WADAH), BUKAN unit_volume (isi sebenarnya). Pail
+          "20Ltr" berisi 19.4 L tetap 27 pcs/palet. Ukuran di luar aturan
+          gudang dibiarkan NULL, bukan ditebak.
+        - Product Type "Tidak ditemukan" dari ERP -> category_id NULL, jangan
+          dibuatkan kategori bernama itu.
   2b. Pelanggan — BELUM. Migration customers + locations, wire
       MasterController::customers. locations = rak/bin gudang, dipakai
       Fase 3 (putaway).
