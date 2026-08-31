@@ -213,8 +213,15 @@ FASE 2 — Master Data: Produk & Pelanggan
 
   KEPUTUSAN UNTUK FASE 4 (sudah dikonfirmasi pemilik produk, jangan ditanya
   ulang):
-    - Satu bin boleh memuat BEBERAPA produk dan BEBERAPA batch sekaligus.
-      Jangan tambahkan unique constraint pada location_id.
+    - DIREVISI 2026-08-31, lalu DIPERBAIKI LAGI di hari yang sama (lihat
+      catatan Fase 3b di bawah): SATU BIN = SATU SLOT PALET per SKU. Boleh
+      memuat BEBERAPA palet dari SKU yang SAMA sampai kapasitas palet SKU itu
+      (Product::max_qty_per_pallet); SKU yang BERBEDA tidak boleh berbagi bin.
+      Baris "beberapa produk & batch sekaligus" di bawah ini SUDAH TIDAK
+      BERLAKU (produk boleh sama tapi digabung sampai kapasitas, bukan bebas
+      tanpa batas) — dipertahankan hanya sebagai jejak, jangan diikuti.
+      ~~Satu bin boleh memuat BEBERAPA produk dan BEBERAPA batch sekaligus.
+      Jangan tambahkan unique constraint pada location_id.~~
     - Koreksi stock opname WAJIB menyertakan alasan; dicatat sebagai
       stock_movements bertipe ADJUSTMENT dengan notes wajib + user_id.
     - Denah gudang adalah antarmuka opname-nya: tiap kotak bin sudah punya
@@ -253,7 +260,55 @@ FASE 3 — Inbound (Barang Masuk)
         - Satu dokumen memuat BANYAK batch; kolom batch di daftar menampilkan
           daftar unik, bukan satu nilai.
 
-  3b. Put-away (F-INB-02) — BELUM.
+  3b. Put-away (F-INB-02) — SELESAI. putawayIndex/putawayProcess/putawayStore
+      terhubung DB, halaman putaway-list + putaway-process.
+      Catatan penting:
+        - PUT-AWAY BOLEH SEBAGIAN. Palet yang lokasinya dikosongkan dilewati,
+          tidak menggagalkan penyimpanan palet lain. Pekerjaan fisik di lantai
+          gudang lazim terputus di tengah giliran kerja.
+        - Status dokumen naik ke verification_pending HANYA bila SELURUH palet
+          punya location_id (InboundHeader::isFullyPlaced). Menaikkan status
+          saat baru separuh ditempatkan akan membuat Logistik memverifikasi
+          barang yang belum ada di raknya. Ada test regresi untuk ini.
+        - Bin DIBATASI ke warehouse_id dokumen. Kode rak seperti "B-01-01"
+          berulang antar gudang, jadi salah gudang tidak terlihat sampai
+          barangnya dicari.
+        - Operator mengetik KODE bin (bukan memilih id); occupancy dipetakan
+          per kode agar pencocokan di layar langsung.
+        - SATU BIN = SATU SLOT PALET PER SKU (direvisi 2026-08-31, dua kali:
+          percobaan pertama "1 bin = 1 palet mutlak" ternyata salah — bin
+          sungguhan menampung SATU SKU sampai kapasitas palet SKU itu, dan
+          palet-palet hasil pemecahan (PRD §7.1) boleh digabung lagi di bin
+          yang sama). Aturannya:
+            · Bin kosong: boleh dipakai SKU apapun.
+            · Bin berisi SKU X, belum penuh: boleh ditambah SKU X SAMPAI
+              kapasitas (Product::max_qty_per_pallet), TIDAK bisa oleh SKU
+              lain.
+            · Bin berisi SKU X, penuh, atau berisi SKU lain: disingkirkan
+              dari rekomendasi untuk baris SKU ini.
+            · Produk yang max_qty_per_pallet-nya belum diisi di Master
+              Produk: bin yang sudah terisi APAPUN ditolak (jaring pengaman,
+              karena sisa kapasitasnya tidak bisa dipastikan).
+          index BUKAN unique pada inbound_details.location_id — kebalikan
+          dari yang sempat ditulis di sini sebelumnya.
+          Dihitung dari SELURUH dokumen (bukan cuma dokumen berjalan) DAN
+          diakumulasi dalam satu pengiriman put-away yang sama, supaya dua
+          palet SKU sama yang menunjuk bin sama dijumlahkan sebelum dicek
+          terhadap kapasitas.
+        - Satuan (Product::uom, mis. TIN/PAIL/KG) ditampilkan apa adanya di
+          layar put-away — JANGAN hardcode "pcs".
+        - Rekomendasi lokasi memakai dropdown kustom (bukan <input list>/
+          <datalist> native): terbuka saat field difokus, menyaring berjalan
+          (substring pada kode — ketik "G" langsung menyaring ke G-xx, bukan
+          menampilkan bin lain lalu difilter manual), dan tertutup begitu
+          satu pilihan diklik. <datalist> native tidak dipakai lagi karena
+          perilaku buka/tutupnya tidak bisa dikendalikan lintas browser saat
+          opsinya diubah dinamis.
+        - Qty Aktual boleh dikoreksi Operator; SKU & batch dikunci karena
+          berasal dari dokumen produksi.
+        - DIBUANG dari mock lama: simulasi QR scanner (rak acak) dan pemecahan
+          otomatis "kapasitas rak 180 pail". Palet SUDAH menjadi satuan
+          kapasitas — pemecahan terjadi di Fase 3a, bukan di sini.
   3c. Verifikasi Maker-Checker (F-INB-03) — BELUM.
 
   Ruang lingkup asli:
