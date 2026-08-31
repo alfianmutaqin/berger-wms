@@ -205,6 +205,22 @@ FASE 2 — Master Data: Produk & Pelanggan
           Ejaan ERP "Midle" dinormalkan Location::normalizeZone().
         - Tidak ada Rak "A" pada denah gudang. Level 4-5 memuat lebih banyak
           sel daripada Level 1-3 di sebagian besar rak.
+        - Halaman DENAH GUDANG (/wms/master/locations/map) menampilkan peta
+          visual seluruh bin: Level 5 di atas, warna per zona, klik bin untuk
+          detail, kotak pencarian untuk melacak bin tertentu. Rute /map
+          didaftarkan SEBELUM /locations/{location} agar "map" tidak
+          tertangkap route model binding.
+
+  KEPUTUSAN UNTUK FASE 4 (sudah dikonfirmasi pemilik produk, jangan ditanya
+  ulang):
+    - Satu bin boleh memuat BEBERAPA produk dan BEBERAPA batch sekaligus.
+      Jangan tambahkan unique constraint pada location_id.
+    - Koreksi stock opname WAJIB menyertakan alasan; dicatat sebagai
+      stock_movements bertipe ADJUSTMENT dengan notes wajib + user_id.
+    - Denah gudang adalah antarmuka opname-nya: tiap kotak bin sudah punya
+      slot indikator keterisian yang tinggal diisi begitu inventory_stocks
+      dibangun. Lihat komentar "Slot isi bin (FASE 4)" di
+      resources/views/wms/master/locations-map.blade.php.
 
 FASE 3 — Inbound (Barang Masuk)
   Migration: inbound_headers, inbound_details
