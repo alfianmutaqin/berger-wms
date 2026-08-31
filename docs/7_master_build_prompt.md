@@ -213,9 +213,13 @@ FASE 2 — Master Data: Produk & Pelanggan
 
   KEPUTUSAN UNTUK FASE 4 (sudah dikonfirmasi pemilik produk, jangan ditanya
   ulang):
-    - DIREVISI 2026-08-31 (lihat catatan Fase 3b di bawah): SATU BIN = SATU
-      PALET. Baris "beberapa produk & batch sekaligus" di bawah ini SUDAH
-      TIDAK BERLAKU — dipertahankan hanya sebagai jejak, jangan diikuti.
+    - DIREVISI 2026-08-31, lalu DIPERBAIKI LAGI di hari yang sama (lihat
+      catatan Fase 3b di bawah): SATU BIN = SATU SLOT PALET per SKU. Boleh
+      memuat BEBERAPA palet dari SKU yang SAMA sampai kapasitas palet SKU itu
+      (Product::max_qty_per_pallet); SKU yang BERBEDA tidak boleh berbagi bin.
+      Baris "beberapa produk & batch sekaligus" di bawah ini SUDAH TIDAK
+      BERLAKU (produk boleh sama tapi digabung sampai kapasitas, bukan bebas
+      tanpa batas) — dipertahankan hanya sebagai jejak, jangan diikuti.
       ~~Satu bin boleh memuat BEBERAPA produk dan BEBERAPA batch sekaligus.
       Jangan tambahkan unique constraint pada location_id.~~
     - Koreksi stock opname WAJIB menyertakan alasan; dicatat sebagai
@@ -271,11 +275,35 @@ FASE 3 — Inbound (Barang Masuk)
           barangnya dicari.
         - Operator mengetik KODE bin (bukan memilih id); occupancy dipetakan
           per kode agar pencocokan di layar langsung.
-        - SATU BIN = SATU PALET (direvisi 2026-08-31, membatalkan keputusan
-          Fase 4 lama di atas). unique index pada inbound_details.location_id.
-          Bin yang sudah terisi TIDAK muncul di rekomendasi lokasi untuk palet
-          lain, dan mencoba menyimpan ke bin yang sudah terisi ditolak.
-          Rekomendasi menampilkan isi bin (qty) bila diketik manual.
+        - SATU BIN = SATU SLOT PALET PER SKU (direvisi 2026-08-31, dua kali:
+          percobaan pertama "1 bin = 1 palet mutlak" ternyata salah — bin
+          sungguhan menampung SATU SKU sampai kapasitas palet SKU itu, dan
+          palet-palet hasil pemecahan (PRD §7.1) boleh digabung lagi di bin
+          yang sama). Aturannya:
+            · Bin kosong: boleh dipakai SKU apapun.
+            · Bin berisi SKU X, belum penuh: boleh ditambah SKU X SAMPAI
+              kapasitas (Product::max_qty_per_pallet), TIDAK bisa oleh SKU
+              lain.
+            · Bin berisi SKU X, penuh, atau berisi SKU lain: disingkirkan
+              dari rekomendasi untuk baris SKU ini.
+            · Produk yang max_qty_per_pallet-nya belum diisi di Master
+              Produk: bin yang sudah terisi APAPUN ditolak (jaring pengaman,
+              karena sisa kapasitasnya tidak bisa dipastikan).
+          index BUKAN unique pada inbound_details.location_id — kebalikan
+          dari yang sempat ditulis di sini sebelumnya.
+          Dihitung dari SELURUH dokumen (bukan cuma dokumen berjalan) DAN
+          diakumulasi dalam satu pengiriman put-away yang sama, supaya dua
+          palet SKU sama yang menunjuk bin sama dijumlahkan sebelum dicek
+          terhadap kapasitas.
+        - Satuan (Product::uom, mis. TIN/PAIL/KG) ditampilkan apa adanya di
+          layar put-away — JANGAN hardcode "pcs".
+        - Rekomendasi lokasi memakai dropdown kustom (bukan <input list>/
+          <datalist> native): terbuka saat field difokus, menyaring berjalan
+          (substring pada kode — ketik "G" langsung menyaring ke G-xx, bukan
+          menampilkan bin lain lalu difilter manual), dan tertutup begitu
+          satu pilihan diklik. <datalist> native tidak dipakai lagi karena
+          perilaku buka/tutupnya tidak bisa dikendalikan lintas browser saat
+          opsinya diubah dinamis.
         - Qty Aktual boleh dikoreksi Operator; SKU & batch dikunci karena
           berasal dari dokumen produksi.
         - DIBUANG dari mock lama: simulasi QR scanner (rak acak) dan pemecahan
