@@ -244,6 +244,14 @@ FASE 3 — Inbound (Barang Masuk)
           pembacaannya.
         - Aturan palet 5 Liter ditambahkan (=180, setara 5 Kg) setelah data
           produksi nyata memuat kemasan itu.
+        - Riwayat Produksi (daftar + detail) SUDAH terhubung DB. Detail dicari
+          lewat document_number, bukan id, agar URL cocok dengan nomor yang
+          tercetak di dokumen fisik.
+        - HATI-HATI menjumlahkan qty: total_qty sengaja BERULANG di tiap palet
+          yang berasal dari satu baris produksi (235 tertulis di palet 1 dan
+          palet 2). Selalu jumlahkan pallet_qty. Ada test regresi untuk ini.
+        - Satu dokumen memuat BANYAK batch; kolom batch di daftar menampilkan
+          daftar unik, bukan satu nilai.
 
   3b. Put-away (F-INB-02) — BELUM.
   3c. Verifikasi Maker-Checker (F-INB-03) — BELUM.
