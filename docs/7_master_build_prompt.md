@@ -253,7 +253,28 @@ FASE 3 — Inbound (Barang Masuk)
         - Satu dokumen memuat BANYAK batch; kolom batch di daftar menampilkan
           daftar unik, bukan satu nilai.
 
-  3b. Put-away (F-INB-02) — BELUM.
+  3b. Put-away (F-INB-02) — SELESAI. putawayIndex/putawayProcess/putawayStore
+      terhubung DB, halaman putaway-list + putaway-process.
+      Catatan penting:
+        - PUT-AWAY BOLEH SEBAGIAN. Palet yang lokasinya dikosongkan dilewati,
+          tidak menggagalkan penyimpanan palet lain. Pekerjaan fisik di lantai
+          gudang lazim terputus di tengah giliran kerja.
+        - Status dokumen naik ke verification_pending HANYA bila SELURUH palet
+          punya location_id (InboundHeader::isFullyPlaced). Menaikkan status
+          saat baru separuh ditempatkan akan membuat Logistik memverifikasi
+          barang yang belum ada di raknya. Ada test regresi untuk ini.
+        - Bin DIBATASI ke warehouse_id dokumen. Kode rak seperti "B-01-01"
+          berulang antar gudang, jadi salah gudang tidak terlihat sampai
+          barangnya dicari.
+        - Operator mengetik KODE bin (bukan memilih id); occupancy dipetakan
+          per kode agar pencocokan di layar langsung.
+        - Satu bin SENGAJA boleh memuat beberapa palet, bahkan beda produk &
+          batch — isi bin ditampilkan sebagai informasi, bukan larangan.
+        - Qty Aktual boleh dikoreksi Operator; SKU & batch dikunci karena
+          berasal dari dokumen produksi.
+        - DIBUANG dari mock lama: simulasi QR scanner (rak acak) dan pemecahan
+          otomatis "kapasitas rak 180 pail". Palet SUDAH menjadi satuan
+          kapasitas — pemecahan terjadi di Fase 3a, bukan di sini.
   3c. Verifikasi Maker-Checker (F-INB-03) — BELUM.
 
   Ruang lingkup asli:
