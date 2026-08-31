@@ -192,9 +192,63 @@ FASE 2 — Master Data: Produk & Pelanggan
         - Kolom Inventory pada ekspor ERP DIABAIKAN (stok bukan data master).
         - Impor ulang TIDAK menghidupkan kembali data yang sengaja
           dinonaktifkan Manager.
-  2c. locations (rak/bin gudang) — BELUM. Dibutuhkan Fase 3 (putaway).
+  2c. Lokasi Rak — SELESAI. Tabel locations, LocationController, halaman
+      Master Lokasi Rak, LocationSeeder (2.264 bin untuk WH-01).
+      Catatan penting untuk Fase 3 (put-away):
+        - Kode berpola [Rak]-[Level]-[Sel]; rack/level/cell DITURUNKAN dari
+          code lewat Location::parseCode, jadi tidak bisa tidak sinkron.
+        - level & cell bertipe ANGKA, bukan string. Selalu urutkan dengan
+          scopeInStorageOrder() — mengurutkan lewat string code menaruh
+          B-01-10 sebelum B-01-02.
+        - code unik PER GUDANG (warehouse_id + code), bukan global.
+        - Zona (Fast/Slow/Middle Moving Area) menentukan strategi put-away.
+          Ejaan ERP "Midle" dinormalkan Location::normalizeZone().
+        - Tidak ada Rak "A" pada denah gudang. Level 4-5 memuat lebih banyak
+          sel daripada Level 1-3 di sebagian besar rak.
+        - Halaman DENAH GUDANG (/wms/master/locations/map) menampilkan peta
+          visual seluruh bin: Level 5 di atas, warna per zona, klik bin untuk
+          detail, kotak pencarian untuk melacak bin tertentu. Rute /map
+          didaftarkan SEBELUM /locations/{location} agar "map" tidak
+          tertangkap route model binding.
+
+  KEPUTUSAN UNTUK FASE 4 (sudah dikonfirmasi pemilik produk, jangan ditanya
+  ulang):
+    - Satu bin boleh memuat BEBERAPA produk dan BEBERAPA batch sekaligus.
+      Jangan tambahkan unique constraint pada location_id.
+    - Koreksi stock opname WAJIB menyertakan alasan; dicatat sebagai
+      stock_movements bertipe ADJUSTMENT dengan notes wajib + user_id.
+    - Denah gudang adalah antarmuka opname-nya: tiap kotak bin sudah punya
+      slot indikator keterisian yang tinggal diisi begitu inventory_stocks
+      dibangun. Lihat komentar "Slot isi bin (FASE 4)" di
+      resources/views/wms/master/locations-map.blade.php.
 
 FASE 3 — Inbound (Barang Masuk)
+  Dikerjakan bertahap atas permintaan pemilik produk.
+
+  3a. Input Produksi (F-INB-01) — SELESAI. Tabel inbound_headers +
+      inbound_details, App\Support\Inbound\ProductionSheet,
+      App\Support\DocumentNumber, halaman create + preview.
+      Catatan penting:
+        - Nomor dokumen & tanggal DIBANGKITKAN SISTEM (format IN-YYMMDD-NNN),
+          berbeda dari rancangan PRD lama yang menyebutnya input manual.
+        - Berkas Excel memuat kolom A-L tapi HANYA A-E yang dibaca:
+          A No.=nomor order produksi, B Source No.=SKU, C Description,
+          D Quantity, E QC Number=batch.
+        - Satu batch bisa mencakup BEBERAPA nomor order produksi — batch_no
+          sengaja tidak unik.
+        - inbound_details = SATU BARIS PER PALET. Qty dipecah saat menyimpan
+          memakai PalletCapacity::split (PRD §7.1).
+        - SKU tak dikenal DITOLAK barisnya; master produk TIDAK diisi otomatis
+          dari berkas produksi agar salah ketik tidak jadi produk permanen.
+        - Berkas Excel DIHAPUS setelah disimpan; sistem hanya menyimpan hasil
+          pembacaannya.
+        - Aturan palet 5 Liter ditambahkan (=180, setara 5 Kg) setelah data
+          produksi nyata memuat kemasan itu.
+
+  3b. Put-away (F-INB-02) — BELUM.
+  3c. Verifikasi Maker-Checker (F-INB-03) — BELUM.
+
+  Ruang lingkup asli:
   Migration: inbound_headers, inbound_details
   Ruang lingkup: docs/1 §6.3. Wire InboundController: create/preview excel,
   putaway (Qty Aktual editable — F-INB-02), verify. Aturan palet otomatis §7.1.
