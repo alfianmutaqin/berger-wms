@@ -223,6 +223,32 @@ FASE 2 — Master Data: Produk & Pelanggan
       resources/views/wms/master/locations-map.blade.php.
 
 FASE 3 — Inbound (Barang Masuk)
+  Dikerjakan bertahap atas permintaan pemilik produk.
+
+  3a. Input Produksi (F-INB-01) — SELESAI. Tabel inbound_headers +
+      inbound_details, App\Support\Inbound\ProductionSheet,
+      App\Support\DocumentNumber, halaman create + preview.
+      Catatan penting:
+        - Nomor dokumen & tanggal DIBANGKITKAN SISTEM (format IN-YYMMDD-NNN),
+          berbeda dari rancangan PRD lama yang menyebutnya input manual.
+        - Berkas Excel memuat kolom A-L tapi HANYA A-E yang dibaca:
+          A No.=nomor order produksi, B Source No.=SKU, C Description,
+          D Quantity, E QC Number=batch.
+        - Satu batch bisa mencakup BEBERAPA nomor order produksi — batch_no
+          sengaja tidak unik.
+        - inbound_details = SATU BARIS PER PALET. Qty dipecah saat menyimpan
+          memakai PalletCapacity::split (PRD §7.1).
+        - SKU tak dikenal DITOLAK barisnya; master produk TIDAK diisi otomatis
+          dari berkas produksi agar salah ketik tidak jadi produk permanen.
+        - Berkas Excel DIHAPUS setelah disimpan; sistem hanya menyimpan hasil
+          pembacaannya.
+        - Aturan palet 5 Liter ditambahkan (=180, setara 5 Kg) setelah data
+          produksi nyata memuat kemasan itu.
+
+  3b. Put-away (F-INB-02) — BELUM.
+  3c. Verifikasi Maker-Checker (F-INB-03) — BELUM.
+
+  Ruang lingkup asli:
   Migration: inbound_headers, inbound_details
   Ruang lingkup: docs/1 §6.3. Wire InboundController: create/preview excel,
   putaway (Qty Aktual editable — F-INB-02), verify. Aturan palet otomatis §7.1.
