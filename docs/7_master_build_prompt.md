@@ -213,8 +213,11 @@ FASE 2 — Master Data: Produk & Pelanggan
 
   KEPUTUSAN UNTUK FASE 4 (sudah dikonfirmasi pemilik produk, jangan ditanya
   ulang):
-    - Satu bin boleh memuat BEBERAPA produk dan BEBERAPA batch sekaligus.
-      Jangan tambahkan unique constraint pada location_id.
+    - DIREVISI 2026-08-31 (lihat catatan Fase 3b di bawah): SATU BIN = SATU
+      PALET. Baris "beberapa produk & batch sekaligus" di bawah ini SUDAH
+      TIDAK BERLAKU — dipertahankan hanya sebagai jejak, jangan diikuti.
+      ~~Satu bin boleh memuat BEBERAPA produk dan BEBERAPA batch sekaligus.
+      Jangan tambahkan unique constraint pada location_id.~~
     - Koreksi stock opname WAJIB menyertakan alasan; dicatat sebagai
       stock_movements bertipe ADJUSTMENT dengan notes wajib + user_id.
     - Denah gudang adalah antarmuka opname-nya: tiap kotak bin sudah punya
@@ -268,8 +271,11 @@ FASE 3 — Inbound (Barang Masuk)
           barangnya dicari.
         - Operator mengetik KODE bin (bukan memilih id); occupancy dipetakan
           per kode agar pencocokan di layar langsung.
-        - Satu bin SENGAJA boleh memuat beberapa palet, bahkan beda produk &
-          batch — isi bin ditampilkan sebagai informasi, bukan larangan.
+        - SATU BIN = SATU PALET (direvisi 2026-08-31, membatalkan keputusan
+          Fase 4 lama di atas). unique index pada inbound_details.location_id.
+          Bin yang sudah terisi TIDAK muncul di rekomendasi lokasi untuk palet
+          lain, dan mencoba menyimpan ke bin yang sudah terisi ditolak.
+          Rekomendasi menampilkan isi bin (qty) bila diketik manual.
         - Qty Aktual boleh dikoreksi Operator; SKU & batch dikunci karena
           berasal dari dokumen produksi.
         - DIBUANG dari mock lama: simulasi QR scanner (rak acak) dan pemecahan
