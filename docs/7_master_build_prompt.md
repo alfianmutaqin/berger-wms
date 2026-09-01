@@ -134,6 +134,42 @@ ATURAN KERJA WAJIB (baca sampai habis, ini yang paling penting):
 
     Bila terlanjur: docker compose exec -T php-fpm chown -R www-data:www-data storage bootstrap/cache
 
+    SEJAK AUDIT FASE 1-5, aturan ini TIDAK LAGI bergantung pada ingatan:
+      - ./bin/artisan dan ./bin/pint — pembungkus yang selalu memakai
+        -u www-data. Pakai ini, bukan mengetik docker compose exec sendiri.
+      - docker/php/dev-entrypoint.sh — container php-fpm mengembalikan
+        kepemilikan storage/ dan bootstrap/cache ke www-data setiap kali
+        START. Jadi bila terlanjur ada berkas milik root, cukup
+        `docker compose restart php-fpm`.
+      - container queue dan scheduler kini `user: www-data`. Sebelumnya
+        keduanya root, dan scheduler berjalan TIAP 60 DETIK sepanjang hari —
+        itu sumber berkas milik root yang tidak pernah disadari siapa pun.
+
+5c. JANGAN PERNAH membuat fitur yang belum ada MENGAKU BERHASIL.
+    Ditemukan saat audit Fase 1-5: EpodController::confirm menjawab "Barang
+    berhasil dikonfirmasi sampai di tujuan" tanpa menyentuh apa pun, dan
+    InboundController::processReturn menjawab "Barang retur berhasil
+    dialokasikan" sambil hanya menggeser data di session. Keduanya rute
+    hidup yang bisa ditekan orang sungguhan.
+
+    Stok yang salah lebih berbahaya daripada fitur yang belum ada: keliru
+    di sini baru ketahuan di ujung, saat barang gagal dikirim. Controller
+    yang menunggu fasenya WAJIB mengembalikan pesan "belum tersedia
+    (dijadwalkan Fase N)", bukan pesan sukses.
+
+5d. SETIAP HALAMAN BARU otomatis terjaga tests/Feature/SmokeRouteTest.php.
+    Test itu membuka SELURUH rute GET sebagai SETIAP role dan menggagalkan
+    build bila ada yang menjawab 5xx. Rutenya dibaca dari router, bukan
+    daftar tulisan tangan. Bila rute baru memakai parameter baru, test akan
+    GAGAL sampai contoh nilainya didaftarkan — sengaja, karena rute yang
+    dilewati adalah rute yang tidak terjaga.
+
+    Latar belakangnya: test per modul bisa hijau seluruhnya sementara sebuah
+    halaman mati begitu dibuka di browser (variabel yang tidak dikirim
+    controller, kolom yang sudah di-rename, relasi yang di-eager-load dengan
+    nama kolom yang salah). Selama Fase 1-5 kejadian seperti itu selalu
+    ditemukan oleh pemilik produk, bukan oleh test.
+
 6. Pakai ulang konvensi yang SUDAH ada di codebase, jangan reinvent:
    - app/Support/CurrentActor.php untuk "siapa aktor saat ini" (sampai Fase 1
      menggantinya dengan session Auth Laravel sungguhan)
