@@ -112,6 +112,28 @@ ATURAN KERJA WAJIB (baca sampai habis, ini yang paling penting):
    berikutnya, supaya `develop` selalu jadi fondasi yang sudah tervalidasi
    CI untuk fase selanjutnya.
 
+5b. SELALU jalankan artisan/composer/pint DI DALAM container SEBAGAI www-data:
+
+      docker compose exec -u www-data php-fpm php artisan <perintah>
+      docker compose exec -u www-data php-fpm ./vendor/bin/pint
+
+    JANGAN memakai `docker compose exec php-fpm ...` tanpa `-u www-data`.
+    `exec` berjalan sebagai ROOT, sehingga file yang dibuatnya (view Blade
+    terkompilasi di storage/framework/views, cache, berkas impor) jadi milik
+    root. PHP-FPM berjalan sebagai www-data dan TIDAK BISA touch() file milik
+    root, sehingga halaman yang bersangkutan mati dengan:
+
+      ErrorException: touch(): Utime failed: Operation not permitted
+      di vendor/laravel/framework/.../BladeCompiler.php
+
+    Ini SUDAH TERJADI BERKALI-KALI di proyek ini (login admin, folder impor,
+    folder inbound, halaman inventory). Direktori sudah 777, tapi itu tidak
+    menolong: yang gagal adalah mengubah mtime FILE milik root, bukan membuat
+    file baru. Gejalanya selalu muncul BELAKANGAN dan di halaman yang tidak
+    ada hubungannya dengan perubahan terakhir, jadi mahal dilacak.
+
+    Bila terlanjur: docker compose exec -T php-fpm chown -R www-data:www-data storage bootstrap/cache
+
 6. Pakai ulang konvensi yang SUDAH ada di codebase, jangan reinvent:
    - app/Support/CurrentActor.php untuk "siapa aktor saat ini" (sampai Fase 1
      menggantinya dengan session Auth Laravel sungguhan)
@@ -391,8 +413,20 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     - expiry_date DISIMPAN saat stok diaktifkan, tidak dihitung ulang saat
       query — supaya mengubah shelf_life_months di Master Produk tidak
       diam-diam menggeser kedaluwarsa batch yang sudah ada di rak.
+    - TAMPILAN = ACCORDION PER SKU, bukan tabel datar per batch. Ini
+      ditetapkan docs/4 §4.3.9 dan SEMPAT DILANGGAR: versi pertama Fase 4
+      dibangun sebagai tabel satu baris per batch, sehingga satu SKU dengan
+      lima palet memakan lima baris layar dan stok DDP hanya terlihat kalau
+      operator ingat memilih filter status. Bentuk yang benar: baris tertutup
+      hanya memuat SKU + "Good Stock: N · DDP Stock: N"; saat dibuka isinya
+      DUA BLOK berwarna (Good Stock bg-success-subtle, DDP bg-danger-subtle),
+      dan blok DDP SELALU dirender meski kosong. Sebelum membangun layar mana
+      pun, BUKA docs/4 dulu — docs/7 tidak mengulang isinya.
+    - Paginasi Fase 4 ada di tingkat SKU (GROUP BY product_id), bukan tingkat
+      batch. Batch di dalam blok TIDAK dilebur: FIFO menuntut tiap batch
+      punya tanggal produksi dan kedaluwarsanya sendiri.
     - SISA UMUR SIMPAN ditampilkan dalam BULAN + MINGGU (permintaan pemilik
-      produk): "5 bln 3 minggu", "6 bulan pas", "10 bln 1 minggu". Lihat
+      produk): "5 bln 3 minggu", "6 bln 0 minggu", "10 bln 1 minggu". Lihat
       App\Support\ShelfLife. Master Produk TETAP menyimpan bulan bulat —
       minggu hanya format tampilan sisa umur, bukan setelan masa simpan.
       HATI-HATI: Carbon 3 mengembalikan PECAHAN dari diffIn*(), wajib
