@@ -346,10 +346,10 @@ FASE 3 — Inbound (Barang Masuk)
           release() juga membuat hasilnya tidak bergantung urutan baris.
           $dalamPengiriman di BinAllocator SENGAJA hanya menumpuk kiriman
           formulir, bukan isi database — lihat komentarnya.
-        - BELUM MENGAKTIFKAN STOK. PRD langkah 9-10 meminta inventory_stocks
-          + entri IN di stock_movements; kedua tabel itu baru dibangun di
-          FASE 4. Verifikasi di sini hanya menandai palet. WAJIB disambung
-          saat Fase 4 dikerjakan.
+        - STOK RESMI AKTIF di sini (utang ini SUDAH LUNAS di Fase 4): tiap
+          palet yang diverifikasi menghasilkan baris inventory_stocks + entri
+          IN di stock_movements lewat App\Support\Inventory\StockActivator,
+          di dalam transaksi yang SAMA dengan penandaan paletnya.
         - Maker-Checker: bila verifikator = operator put-away-nya sendiri,
           layar menampilkan peringatan "pemisahan tugas gugur" (PRD §5.2
           mengizinkan tapi mewajibkan penandaan). Pencatatan audit_logs-nya
@@ -360,17 +360,48 @@ FASE 3 — Inbound (Barang Masuk)
   Ruang lingkup: docs/1 §6.3. Wire InboundController: create/preview excel,
   putaway (Qty Aktual editable — F-INB-02), verify. Aturan palet otomatis §7.1.
 
-FASE 4 — Inventory & Stok
-  Migration: inventory_stocks, stock_movements
-  WAJIB DIKERJAKAN DI SINI (utang dari Fase 3c): sambungkan
-  InboundController::verifyStore() agar palet yang diverifikasi benar-benar
-  MENGAKTIFKAN STOK — baris di inventory_stocks + entri IN di stock_movements
-  (PRD §6.3 F-INB-03 langkah 9-10). Saat ini verifikasi baru menandai palet.
-  Ruang lingkup: docs/1 §6.4, §7.2 (FIFO), §7.2.1 (Expiry & DDP).
-  Wire InventoryController: index, adjust, transfer antar gudang.
-  PENTING: inventory_stocks.sales_return_detail_id dibuat nullable TANPA FK
-  constraint dulu (constraint-nya baru di Fase 7, lihat catatan sirkular
-  docs/2 §8) — jangan tukar urutan ini.
+FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
+  stock_movements, InventoryController (index/adjust/transfer),
+  App\Support\ShelfLife, App\Support\Inventory\StockActivator, command
+  stock:sweep-expired.
+  Catatan penting:
+    - UTANG FASE 3c SUDAH LUNAS: verifikasi Logistik kini benar-benar
+      mengaktifkan stok lewat StockActivator, di dalam transaksi yang sama
+      dengan penandaan paletnya. Ada test regresi
+      (InventoryTest::test_verifikasi_inbound_mengaktifkan_stok).
+    - SATU BARIS = produk × lokasi × batch. JANGAN melebur batch jadi satu
+      angka per produk: FIFO menuntut batch tertua bisa keluar duluan.
+      Tidak ada unique constraint pada location_id — aturan "satu bin = satu
+      SKU sampai kapasitas" ditegakkan saat PUT-AWAY (BinAllocator), dan satu
+      bin tetap boleh memuat beberapa BATCH dari SKU yang sama.
+    - scopeSellable() menyaring status='active' DAN expiry_date > HARI INI
+      SEKALIGUS. Menyaring status saja TIDAK CUKUP: batch yang kedaluwarsa
+      hari ini masih berstatus 'active' sampai sweep jalan pukul 00:05, dan
+      pada sela itu barang kedaluwarsa bisa ikut teralokasi. Sweep harian
+      adalah jaring pengaman, BUKAN satu-satunya pertahanan.
+    - stock_movements APPEND-ONLY, ditegakkan di model (updating/deleting
+      melempar RuntimeException), bukan cuma ditulis di dokumen. Koreksi
+      dilakukan dengan MENAMBAH baris lawan.
+    - Koreksi stok WAJIB beralasan dan tidak boleh di bawah qty_allocated —
+      stok yang sudah dikunci untuk order tidak boleh hilang lewat koreksi.
+    - Transfer = PASANGAN TRANSFER_OUT/TRANSFER_IN dalam satu transaksi,
+      total qty_change harus NOL. Batch, production_date, dan expiry_date
+      IKUT PINDAH apa adanya; membuat batch baru di rak tujuan merusak FIFO
+      sekaligus perhitungan kedaluwarsa.
+    - expiry_date DISIMPAN saat stok diaktifkan, tidak dihitung ulang saat
+      query — supaya mengubah shelf_life_months di Master Produk tidak
+      diam-diam menggeser kedaluwarsa batch yang sudah ada di rak.
+    - SISA UMUR SIMPAN ditampilkan dalam BULAN + MINGGU (permintaan pemilik
+      produk): "5 bln 3 minggu", "6 bulan pas", "10 bln 1 minggu". Lihat
+      App\Support\ShelfLife. Master Produk TETAP menyimpan bulan bulat —
+      minggu hanya format tampilan sisa umur, bukan setelan masa simpan.
+      HATI-HATI: Carbon 3 mengembalikan PECAHAN dari diffIn*(), wajib
+      di-cast (int) atau labelnya keluar "5.3928571428571 bln". Ada test
+      regresi untuk ini.
+    - inventory_stocks.sales_return_detail_id nullable TANPA FK constraint
+      (constraint-nya baru di Fase 7, catatan sirkular docs/2 §8).
+    - app/Data/MockInventory.php DIHAPUS — InventoryController tidak lagi
+      memakai data karangan di session.
 
 FASE 5 — Sales Order Portal
   Migration: sales_orders, sales_order_details, sales_order_allocations
