@@ -309,7 +309,51 @@ FASE 3 — Inbound (Barang Masuk)
         - DIBUANG dari mock lama: simulasi QR scanner (rak acak) dan pemecahan
           otomatis "kapasitas rak 180 pail". Palet SUDAH menjadi satuan
           kapasitas — pemecahan terjadi di Fase 3a, bukan di sini.
-  3c. Verifikasi Maker-Checker (F-INB-03) — BELUM.
+  3c. Verifikasi Maker-Checker (F-INB-03) — SELESAI. verifyIndex/verifyProcess/
+      verifyStore terhubung DB, halaman verify-list + verify-process.
+      Catatan penting:
+        - VERIFIKASI BOLEH SEBAGIAN (PRD langkah 8 "menunda"). Status turun ke
+          partial_verified; scopeAwaitingVerification() SENGAJA memuat
+          partial_verified juga — kalau dikeluarkan dari daftar, sisa paletnya
+          tidak bisa diselesaikan lewat layar manapun.
+        - Status dihitung InboundHeader::resolveVerificationStatus() DARI ISI
+          PALET, bukan dari urutan aksi, jadi tidak bisa tertinggal tidak
+          sinkron.
+        - PALET TERVERIFIKASI TERKUNCI di layar ini (F-INB-04: koreksi
+          pasca-verifikasi HANYA lewat Menu Stok oleh Manager/Super Admin).
+          verifyStore() melewati `continue` pada detail yang is_verified —
+          ada test regresi yang mencoba mengubahnya lewat POST.
+        - QTY & LOKASI boleh dikoreksi Logistik; BATCH & SKU TIDAK.
+          PENYIMPANGAN DISENGAJA dari PRD §6.3 F-INB-03 langkah 8 yang
+          menyebut "qty, lokasi, batch": batch adalah nomor QC yang menjadi
+          jejak telusur balik ke dokumen produksi, mengubahnya di gudang
+          memutus rantai itu tanpa jejak. Mengikuti rancangan layar (mock)
+          dan konsisten dengan put-away. UBAH HANYA bila pemilik produk
+          memutuskan sebaliknya.
+        - Aturan kapasitas bin dipakai bersama put-away lewat
+          App\Support\Inbound\BinAllocator — JANGAN menyalin aturannya lagi
+          ke layar baru; bedanya baru ketahuan sebagai stok yang tidak cocok
+          dengan rak fisiknya.
+        - JEBAKAN HITUNG GANDA (sudah pernah terjadi, ada test regresi di
+          KEDUA layar). Palet yang disimpan ULANG sudah menghuni bin di
+          database. Kalau isi database dan nilai kiriman formulir
+          dijumlahkan begitu saja, palet terhitung dua kali dan konsolidasi
+          yang sah ditolak dengan pesan seperti "sudah terisi 200" padahal
+          isinya 100. Karena itu pemakaian BinAllocator WAJIB dua tahap:
+            1. Kumpulkan seluruh kandidat (parse + validasi isian dasar).
+            2. $allocator->release(array_keys($kandidat)) SEBELUM place()
+               yang pertama, lalu place() satu per satu.
+          release() juga membuat hasilnya tidak bergantung urutan baris.
+          $dalamPengiriman di BinAllocator SENGAJA hanya menumpuk kiriman
+          formulir, bukan isi database — lihat komentarnya.
+        - BELUM MENGAKTIFKAN STOK. PRD langkah 9-10 meminta inventory_stocks
+          + entri IN di stock_movements; kedua tabel itu baru dibangun di
+          FASE 4. Verifikasi di sini hanya menandai palet. WAJIB disambung
+          saat Fase 4 dikerjakan.
+        - Maker-Checker: bila verifikator = operator put-away-nya sendiri,
+          layar menampilkan peringatan "pemisahan tugas gugur" (PRD §5.2
+          mengizinkan tapi mewajibkan penandaan). Pencatatan audit_logs-nya
+          menyusul di FASE 9.
 
   Ruang lingkup asli:
   Migration: inbound_headers, inbound_details
@@ -318,6 +362,10 @@ FASE 3 — Inbound (Barang Masuk)
 
 FASE 4 — Inventory & Stok
   Migration: inventory_stocks, stock_movements
+  WAJIB DIKERJAKAN DI SINI (utang dari Fase 3c): sambungkan
+  InboundController::verifyStore() agar palet yang diverifikasi benar-benar
+  MENGAKTIFKAN STOK — baris di inventory_stocks + entri IN di stock_movements
+  (PRD §6.3 F-INB-03 langkah 9-10). Saat ini verifikasi baru menandai palet.
   Ruang lingkup: docs/1 §6.4, §7.2 (FIFO), §7.2.1 (Expiry & DDP).
   Wire InventoryController: index, adjust, transfer antar gudang.
   PENTING: inventory_stocks.sales_return_detail_id dibuat nullable TANPA FK
