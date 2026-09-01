@@ -14,14 +14,29 @@ Sistem ini adalah **Warehouse Management System (WMS) terintegrasi dengan Sales 
 ### Teknologi Utama
 | Layer | Teknologi | Catatan |
 |---|---|---|
-| Backend Engine | Laravel 11/12+ (PHP 8.3+) | Eloquent ORM, Middleware, Queue |
-| Frontend | Laravel Blade + Livewire 3 + Bootstrap 5 | Tidak menggunakan SPA/React/Vue |
+| Backend Engine | **Laravel 13** (PHP 8.3+) | Eloquent ORM, Middleware, Queue |
+| Frontend | Laravel Blade + Livewire 3 + Bootstrap 5.3 | Tidak menggunakan SPA/React/Vue |
 | Database | PostgreSQL 16+ | Transaksional, konkurensi tinggi |
-| Cache | Redis | Session, cache query, real-time notification |
-| Queue | Laravel Horizon + Redis | Background jobs |
-| Auth MFA | Google Authenticator (TOTP) | Untuk semua role |
-| Realtime | Laravel Echo + Laravel Reverb | Notifikasi real-time dengan suara |
+| Cache | Redis 7 | Session, cache query, real-time notification |
+| Queue | Redis (`queue:work`); Horizon menyusul | Background jobs |
+| Verifikasi Anti-Bot | Google reCAPTCHA v2 | Widget di form login, semua role |
+| Realtime | Laravel Echo + **Soketi** | Notifikasi real-time dengan suara |
 | Infra | Docker + CI/CD (GitHub Actions) | Containerized deployment |
+
+> [!NOTE]
+> **Status dependensi (per 31 Agustus 2026).** Paket berikut **belum terpasang** dan harus ditambahkan saat modul terkait dikerjakan: Livewire 3, DomPDF/Snappy, Laravel Horizon, dan paket RBAC. Jangan berasumsi paket-paket ini sudah tersedia.
+>
+> **Sudah terpasang:** `phpoffice/phpspreadsheet` untuk impor Excel.
+>
+> **`maatwebsite/excel` DIHAPUS dari rencana.** Versi modernnya belum mendukung Laravel 13 — composer justru menawarkan v1.1.5 (rilis 2014) yang bergantung pada `phpoffice/phpexcel` yang sudah ditinggalkan. Dipakai PhpSpreadsheet langsung, yang memang mesin di balik paket tersebut.
+>
+> **Composer dijalankan lewat container sementara**, karena tidak ada di image php-fpm:
+> ```bash
+> MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd)":/app -w /app composer:2.8 require <paket>
+> ```
+> `composer.json` memuat `config.platform` yang mendeklarasikan PHP 8.3 beserta ekstensi runtime (gd, zip, mbstring, simplexml). Tanpa itu composer akan memeriksa ekstensi milik *container composer* — yang tidak punya `ext-gd` — lalu menolak paket yang sebenarnya kompatibel dengan runtime kita.
+>
+> `pragmarx/google2fa-laravel` **dihapus dari rencana** — MFA/TOTP diganti Google reCAPTCHA per PRD v1.2. Verifikasi reCAPTCHA (Fase 1b) TIDAK memakai package tambahan — cukup `Http::asForm()->post()` langsung ke endpoint siteverify Google (lihat `AuthController::verifyRecaptcha()`).
 
 ---
 
@@ -69,6 +84,29 @@ Portal Warehouse (Desktop-First):
 ```
 
 **Konvensi Penamaan File Blade:**
+
+> [!IMPORTANT]
+> **Struktur di bawah ini adalah rencana awal dan SUDAH TIDAK SESUAI dengan kode yang berjalan.** Struktur nyata di repo saat ini:
+>
+> ```
+> resources/views/
+> |-- layouts/
+> |   |-- soms.blade.php          # Layout Portal Sales   (bukan app-sales)
+> |   `-- wms.blade.php           # Layout Portal Warehouse (bukan app-warehouse)
+> |-- partials/                   # (bukan layouts/partials)
+> |   |-- head.blade.php
+> |   |-- navbar-top.blade.php    # DIPAKAI BERSAMA kedua portal
+> |   `-- scripts.blade.php
+> |-- sales/                      # dashboard, new_order, my_orders
+> |-- wms/                        # (bukan warehouse/)
+> |   |-- dashboard/  inbound/  inventory/  outbound/
+> |   `-- billing/  master/  admin/  reports/
+> |-- driver/epod.blade.php
+> `-- auth/login.blade.php        # halaman login (dulu welcome.blade.php)
+> ```
+>
+> **Ikuti struktur nyata di atas**, bukan struktur rencana di bawah. Folder `admin/` terpisah tidak dipakai — halaman admin berada di `wms/admin/` dan `wms/master/`. Folder `auth/` sudah ada sejak Fase 1 (berisi `login.blade.php`); folder `components/` belum dibuat.
+
 ```
 resources/views/
 â”œâ”€â”€ layouts/
@@ -111,7 +149,6 @@ resources/views/
 â”‚   â””â”€â”€ settings/
 â”œâ”€â”€ auth/
 â”‚   â”œâ”€â”€ login.blade.php
-â”‚   â”œâ”€â”€ mfa-verify.blade.php
 â”‚   â””â”€â”€ locked.blade.php
 â””â”€â”€ components/                      # Blade components reusable
     â”œâ”€â”€ alert.blade.php
@@ -152,7 +189,6 @@ app/
 â”‚   â”œâ”€â”€ Controllers/
 â”‚   â”‚   â”œâ”€â”€ Auth/
 â”‚   â”‚   â”‚   â”œâ”€â”€ LoginController.php
-â”‚   â”‚   â”‚   â”œâ”€â”€ MfaController.php
 â”‚   â”‚   â”‚   â””â”€â”€ SessionController.php
 â”‚   â”‚   â”œâ”€â”€ Sales/                    # Controller portal Sales
 â”‚   â”‚   â”‚   â”œâ”€â”€ DashboardController.php
@@ -180,10 +216,8 @@ app/
 â”‚   â”‚       â””â”€â”€ SettingsController.php
 â”‚   â”œâ”€â”€ Middleware/
 â”‚   â”‚   â”œâ”€â”€ CheckRole.php
-â”‚   â”‚   â”œâ”€â”€ CheckMfa.php
 â”‚   â”‚   â”œâ”€â”€ EnforceMaxSessions.php
 â”‚   â”‚   â”œâ”€â”€ CheckOrderCutoff.php
-â”‚   â”‚   â”œâ”€â”€ CheckCustomerBlocked.php
 â”‚   â”‚   â””â”€â”€ TrackAuditLog.php
 â”‚   â””â”€â”€ Requests/                    # Form Request validation
 â”‚       â”œâ”€â”€ StoreInboundRequest.php
@@ -348,14 +382,21 @@ main (production)
 |---|---|
 | Sales tidak boleh lihat stok | Sistem Semi-Blind: hanya indikator âœ…âš ï¸âŒ, bukan angka |
 | Order cutoff jam 15:00 | Setelah jam 15:00 WIB, form order terkunci |
-| Pembayaran 30/60/90 hari | Harus masuk menu billing, blokir order jika belum bayar |
+| Pembayaran 30/60/90 hari | Masuk menu billing. Customer menunggak **DITANDAI**, **BUKAN diblokir** - order tetap boleh dibuat |
+| Customer dibuat Admin | Sales **tidak** punya menu pengajuan customer. Manager/Super Admin membuat langsung via Master Customer |
 | Cash/Transfer | Langsung complete tanpa billing |
 | Palet otomatis | Qty dipecah otomatis berdasarkan kapasitas per UoM |
-| FIFO wajib | Stok tertua HARUS keluar duluan |
+| FIFO wajib | Stok tertua HARUS keluar duluan; stok `ddp`/`expired` WAJIB dilewati |
+| Expiry wajib | Cat **memiliki** masa simpan (default 30 bulan dari tanggal produksi) |
+| Stok DDP terpisah | Stok rusak/expired dipisah dari Good Stock, tidak pernah masuk Picking List |
 | Maker-Checker inbound | Operator put-away â†’ Logistik verifikasi â†’ Stok aktif |
 | Max 2 device per user | Session ketiga menendang session tertua |
-| MFA wajib | Semua role wajib Google Authenticator |
+| Verifikasi anti-bot | Semua role melewati Google reCAPTCHA di form login (bukan MFA/TOTP) |
+| Lockout login | 3 kali gagal (password atau anti-bot) -> terkunci 5/10/30/60/120 menit progresif |
 | Edit stok | Hanya Manager dan Super Admin melalui menu Stock |
+| Qty put-away | Operator **BOLEH** koreksi Qty Aktual (SKU & batch tetap terkunci); selisih dicatat untuk verifikasi Logistik |
+| Hak Manager | CRUD User + Pengaturan Dokumen. TIDAK boleh membuat/mengubah akun Super Admin |
+| Hak Super Admin | Akses penuh Portal Warehouse termasuk tugas operasional. TIDAK punya akses Portal Sales |
 
 ### 5.2 Batasan Teknis
 
@@ -364,11 +405,17 @@ main (production)
 | Upload file | Hanya PNG/JPG, max 5MB, atau langsung dari kamera |
 | No SPA | Tidak menggunakan React, Vue, atau framework SPA |
 | No external API | Tidak ada integrasi ke sistem keuangan atau pihak ketiga |
-| No barcode | Tidak menggunakan scanner barcode |
-| No expiry tracking | Cat tidak memiliki tanggal kadaluarsa |
 | No backorder | Sisa pesanan yang tidak terpenuhi = lost sales |
-| No retur (fase 1) | Modul retur dikembangkan setelah sistem utama 80-90% |
-| No transfer gudang | Setiap gudang independen, filter by dispatch code |
+| QR lokasi rak | Scan QR pada rak DIGUNAKAN untuk put-away & picking (bukan barcode produk) |
+| Retur | Modul retur **masuk scope** - lihat PRD 6.10 |
+| Transfer gudang | Transfer stok antar lokasi & antar gudang **masuk scope** - lihat PRD 6.4 F-INV-05 |
+
+### 5.3 Catatan Khusus - Role Switcher (SELESAI DIHAPUS)
+
+> [!NOTE]
+> Dropdown **"Switch Role"** yang sebelumnya ada di `resources/views/partials/navbar-top.blade.php` sudah **dihapus** pada Fase 1 (Autentikasi Nyata — lihat `docs/7_master_build_prompt.md`). Peran kini sepenuhnya ditentukan oleh `auth()->user()->role` lewat login sungguhan (`AuthController`) dan ditegakkan oleh middleware `auth`, `session.track`, dan `portal:{wms|sales}` (lihat `bootstrap/app.php` dan `routes/web.php`).
+>
+> Jalur `?as=<slug-role>` di `App\Support\CurrentActor` dipertahankan sebagai fallback pengembangan, tapi kini dipagari `app()->environment('production')` dan pada praktiknya sudah tidak terjangkau lewat HTTP biasa — rute wms/sales sudah dibungkus middleware `auth` sehingga tamu ditolak sebelum sempat mencapai jalur tersebut.
 
 ---
 
