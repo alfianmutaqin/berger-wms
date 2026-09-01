@@ -437,11 +437,72 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     - app/Data/MockInventory.php DIHAPUS — InventoryController tidak lagi
       memakai data karangan di session.
 
-FASE 5 — Sales Order Portal
-  Migration: sales_orders, sales_order_details, sales_order_allocations
+FASE 5 — Sales Order Portal — SELESAI
+  Migration: document_sequences, sales_orders, sales_order_details,
+             sales_order_allocations
   Ruang lingkup: docs/1 §6.5 (bagian order masuk) + modul Sales Portal.
-  Wire SalesOrderController: create/store new-order, history (my-orders).
-  Aturan cutoff waktu order §7.5, partial fulfillment & lost sales §7.3.
+
+  BATAS FASE INI (diputuskan pemilik produk): HANYA sisi Sales — draft,
+  submit, riwayat, detail + timeline. Approval, alokasi FIFO, dan Lost
+  Sales §7.3 PINDAH KE FASE 6, karena baris sales_order_allocations hanya
+  ditulis saat Logistik menekan Approve; membangunnya di sini berarti kode
+  yang tidak punya pemicu dan tidak bisa diuji pemilik produk.
+
+  Keputusan yang MENYIMPANG dari docs/2 — semuanya disetujui pemilik
+  produk, dan docs/2 sudah diperbarui:
+    - STATUS 'draft' DITAMBAHKAN, submitted_at jadi NULLABLE. docs/1
+      F-OUT-01 #7 dan docs/4 §3.3.2 mewajibkan tombol Simpan Draft, dan
+      §3.3.2 menegaskan tombol itu TETAP AKTIF setelah pukul 15:00. Tanpa
+      draft, aturan cutoff §7.5 tidak punya jalan keluar. submitted_at =
+      titik awal SLA §7.6, jadi draft memang belum boleh punya.
+    - payment_term_id FK ke payment_terms (tabelnya sudah ada sejak Fase 2
+      dan memang dibuat untuk ini), BUKAN ENUM.
+    - NOMOR PO: PO{YYMMDD}{urut 3 digit}. Urut BERJALAN TERUS SEPANJANG
+      BULAN, reset saat ganti bulan — jadi pesanan pertama tanggal 2 Sep
+      MELANJUTKAN angka tanggal 1, bukan mengulang 001. Ini bagian yang
+      paling mudah salah dibaca; ada test khususnya.
+    - document_sequences DIBUAT DI SINI, bukan Fase 10. Fase 10 tinggal
+      menambah layar pengaturannya. Tabelnya punya period_month dan
+      warehouse_id NULLABLE (nomor PO lintas gudang, nomor SJ per gudang).
+      Unique index-nya memakai NULLS NOT DISTINCT — tanpa itu Postgres
+      menganggap dua NULL berbeda dan dua pesanan bisa dapat nomor sama.
+
+  DUA METODE PEMESANAN (permintaan pemilik produk, TIDAK ADA di dokumen
+  mana pun sebelumnya):
+    1. Metode dokumen — Sales mencentang "Pesanan sesuai dengan dokumen
+       yang diupload", mengunggah PO customer, dan mengisi nomor PO milik
+       customer. Rincian item DIBIARKAN KOSONG.
+    2. Metode rincian — Sales mengisi sendiri SKU dan qty-nya.
+  Sistem SELALU membuat nomor internal di kedua metode; nomor PO customer
+  disimpan terpisah (customer_po_number, SENGAJA tidak unique) karena dua
+  customer boleh memakai penomoran yang sama.
+
+  TUGAS FASE 6 yang lahir dari sini:
+    - Layar approval menampilkan rincian dalam TABEL MIRIP SHEET EXCEL,
+      supaya Logistik bisa menyalinnya langsung ke dokumen Excel lain.
+    - Pesanan bermetode dokumen: Logistik membaca/mengunduh berkasnya lalu
+      MENGISI SENDIRI rincian itemnya sebelum menerima pesanan.
+    - Logistik mengisi bc_so_number (nomor SO dari sistem BC) saat
+      menerima pesanan. Kolomnya SUDAH ADA, tinggal diisi.
+
+  Semi-blind (F-INV-03) ditegakkan di server: yang menyeberang ke layar
+  Sales hanya kode indikator ✅/⚠️/❌, TIDAK PERNAH angka stoknya — apa pun
+  yang masuk HTML bisa dibaca lewat inspect. Ada test khususnya.
+
+  CUSTOMER DAN PRODUK DICARI, BUKAN DI-DROPDOWN (permintaan pemilik produk).
+  Keduanya berjumlah ribuan dan Sales bekerja dari HP; dropdown penuh berarti
+  menggulir ribuan baris untuk satu SKU. Daftar keduanya TIDAK ikut dikirim
+  bersama halaman — dicari lewat GET /sales/lookup/customers dan
+  /sales/lookup/products sambil mengetik (minimal 2 huruf, maksimal 20
+  saran). Hasilnya HARUS menyesuaikan yang diketik: mengetik "APKO" tidak
+  boleh memunculkan satu pun produk non-APKO. Endpoint produk mengembalikan
+  indikator ✅/⚠️/❌, BUKAN angka — ini satu-satunya tempat Sales melihat
+  ketersediaan, jadi aturan Semi-Blind ditegakkan di sana juga.
+
+  CATATAN TEST: getJson() Laravel TIDAK mengirim cookie kecuali
+  withCredentials() dipasang, sehingga endpoint lookup akan diuji tanpa
+  device_token dan yang teruji jadi jalur logout paksa TrackUserSession
+  (302), bukan pencariannya. Lihat SalesOrderTest::loginAs().
 
 FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
   Migration: delivery_notes, delivery_proofs
