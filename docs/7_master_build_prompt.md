@@ -170,6 +170,24 @@ ATURAN KERJA WAJIB (baca sampai habis, ini yang paling penting):
     nama kolom yang salah). Selama Fase 1-5 kejadian seperti itu selalu
     ditemukan oleh pemilik produk, bukan oleh test.
 
+5e. IMPOR MASSAL: satu baris rusak TIDAK BOLEH menghentikan sisa berkas,
+    dan batas panjang kolom DIBACA DARI SKEMA, bukan disalin tangan.
+    Keduanya di app/Support/Import/Importer.php dan berlaku otomatis untuk
+    importer baru — subclass hanya perlu menyebut table() dan columnLabels().
+
+    Latar belakangnya: sel ekspor ERP "6285775005758/6282233024171" (dua
+    nomor pelanggan) dinormalkan dengan membuang semua karakter bukan angka,
+    menyatu jadi 26 digit, melampaui varchar(25), dan menghentikan impor
+    1.863 pelanggan di baris 1.731. Yang dilihat pengguna cuma pesan
+    SQLSTATE 22001 mentah; 1.708 baris sudah telanjur tersimpan dan 132
+    sisanya tidak pernah dicoba. Tiga hal salah sekaligus: normalisasi yang
+    menganggap satu sel = satu nomor, pratinjau yang meloloskan baris yang
+    kemudian ditolak database (padahal justru itu gunanya pratinjau), dan
+    impor yang mati total karena satu baris.
+
+    Normalisasi nomor telepon sekarang terpusat di app/Support/PhoneNumber.php
+    — sebelumnya logika yang sama-sama keliru ditulis ulang di tiga tempat.
+
 6. Pakai ulang konvensi yang SUDAH ada di codebase, jangan reinvent:
    - app/Support/CurrentActor.php untuk "siapa aktor saat ini" (sampai Fase 1
      menggantinya dengan session Auth Laravel sungguhan)
