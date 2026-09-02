@@ -695,6 +695,72 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
     picking. Kalau ini terasa mengganggu saat dipakai, halaman itulah
     obatnya.
 
+SISIPAN — MULTI-GUDANG (keputusan pemilik produk, 2026-09-02)
+
+  Perluasan yang muncul di tengah Fase 6: sistem ternyata dipakai juga oleh
+  staff gudang lain, bukan Karawang saja. Ini MENDAHULUI tahap 3 (picking)
+  atas rekomendasi yang disetujui pemilik produk, alasannya:
+
+    - Ini aturan AKSES, bukan fitur. Aturan akses yang dipasang belakangan
+      selalu meninggalkan lubang: satu layar yang terlewat sudah cukup.
+    - Biayanya naik, bukan tetap. Saat diputuskan ada 6 modul yang perlu
+      disentuh; sesudah tahap 3-5 jadi 9, dan ketiganya akan menyalin pola
+      query yang belum berpembatas lalu harus diubah lagi.
+    - Lubangnya ada di URL, bukan di daftar. Menyembunyikan baris tidak
+      cukup — membuka /wms/outbound/approval/{id} milik gudang lain HARUS
+      403. Itu pemeriksaan per objek di setiap titik masuk.
+
+  KEADAAN SEBELUM PERUBAHAN INI (penting, jangan dikira sudah aman):
+  users.warehouse_id SUDAH ADA sejak Fase 1 tetapi TIDAK PERNAH dipakai
+  membatasi apa pun. Semua penyaringan gudang hanya filter opsional dari URL
+  ($request->query('warehouse_id')). Artinya siapa pun bisa melihat dan
+  mengubah data gudang lain hanya dengan menghapus parameter di alamat.
+
+  TIGA GUDANG: Karawang (WH-01), Pekanbaru (WH-02), Surabaya (WH-03).
+  WH-03 sebelumnya bernama Cikarang — itu keliru, sudah dikoreksi.
+  Kode gudang SENGAJA dibiarkan WH-0x: pemilik produk tidak memintanya
+  diubah, dan bentuk kode baru lebih tepat diputuskan di tahap 4 bersama
+  format nomor Surat Jalan (docs/1 F-OUT-04 #8 mencontohkan SJ-KRW-...).
+
+  PRODUKSI HANYA DI KARAWANG. Pekanbaru dan Surabaya hanya menyimpan stok.
+  Stok masuk ke keduanya lewat TRANSFER DARI KARAWANG (PRD F-INV-05), bukan
+  inbound produksi — menu Inbound tidak berlaku di sana. Alur transfernya
+  BELUM DIBANGUN; sementara ini stok di dua gudang itu diisi lewat Impor
+  Stok Awal dan Tambah Stok dari tahap 2.
+
+  PELANGGAN TIDAK DIMILIKI GUDANG — ini sempat salah saya tangkap dan
+  dikoreksi pemilik produk. Yang dibatasi adalah CAKUPAN WILAYAH per gudang:
+
+      Karawang   : SEMUA territory, tanpa kecuali
+      Pekanbaru  : HANYA SUMATERA 1 dan SUMATERA 2
+      Surabaya   : semua KECUALI SUMATERA 1 dan SUMATERA 2
+
+  Satu wilayah boleh dilayani lebih dari satu gudang — Sumatera bisa dikirim
+  dari Karawang maupun Pekanbaru, Jawa Timur belum tentu dari Surabaya.
+  Karena itu tabel `customers` TIDAK diberi kolom gudang dan 1.840 barisnya
+  tidak disentuh sama sekali. Yang dibuat adalah daftar cakupan wilayah yang
+  bisa disunting Manager/Super Admin.
+
+  Pembatasannya KERAS, bukan peringatan: Sales tidak bisa memilih pelanggan
+  di luar cakupan gudangnya.
+
+  SALES DIKUNCI ke gudang akunnya — pilihan gudang di form Buat Pesanan
+  hilang, terisi sendiri dari akun.
+
+  LINTAS GUDANG hanya MASTER PRODUK (1.735 SKU sama untuk semua). Yang lain
+  dibatasi per gudang: pesanan, stok, inbound, manajemen user, laporan.
+  Manager hanya mengendalikan gudangnya sendiri; Super Admin lintas gudang.
+
+  ISTILAH: "Lost Sales" DIGANTI menjadi OUTSTANDING di seluruh sistem,
+  termasuk nama kolom (sales_order_details.lost_qty -> outstanding_qty,
+  migrasi 2026_09_12_000001). Kolom bernama lain dari labelnya berarti
+  setiap pembaca kode harus menerjemahkan dua istilah untuk satu hal.
+
+  URUTAN PENGERJAAN:
+    Langkah A  istilah Outstanding + nama gudang ......... SELESAI
+    Langkah B  pembatasan gudang (menyusul)
+    Langkah C  baru tahap 3 (picking)
+
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
              add_sales_return_fk_to_inventory_stocks_table (FK susulan)
