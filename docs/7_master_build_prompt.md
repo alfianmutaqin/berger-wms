@@ -758,8 +758,98 @@ SISIPAN — MULTI-GUDANG (keputusan pemilik produk, 2026-09-02)
 
   URUTAN PENGERJAAN:
     Langkah A  istilah Outstanding + nama gudang ......... SELESAI
-    Langkah B  pembatasan gudang (menyusul)
+    Langkah B  pembatasan gudang ........................ SELESAI
     Langkah C  baru tahap 3 (picking)
+
+
+LANGKAH B — PEMBATASAN GUDANG — SELESAI
+
+  SATU SUMBER KEBENARAN: App\Support\WarehouseScope. Semua layar memanggil
+  berkas yang sama, sehingga aturannya tidak bisa berbeda-beda per halaman.
+
+    boundary()      gudang user; NULL = lintas gudang (Super Admin)
+    apply()         mempersempit query
+    options()       isi dropdown gudang
+    resolveFilter() MENJEPIT filter URL ke dalam batas
+    allows()        bentuk boolean, untuk FormRequest::authorize()
+    assert()        403 untuk satu objek
+    require()       gudang wajib saat membuat data baru
+
+  BEDA FILTER DAN BATAS — ini inti perubahannya. Dahulu penyaringan gudang
+  hanya filter opsional dari URL, sehingga MENGHAPUS parameternya membuka
+  seluruh gudang. Sekarang filter selalu dijepit resolveFilter(): mengisinya
+  dengan gudang lain pun tidak melebarkan apa pun.
+
+  MENYARING DAFTAR TIDAK CUKUP. Lubang sebenarnya ada di URL detail, jadi
+  assert() dipasang di SETIAP titik masuk yang menerima satu objek:
+  approval show/resolve/document/accept/reject, inventory adjust/store/
+  transfer, inbound history-detail/putaway/verify (proses & simpan),
+  locations update/status/store, users store/update.
+
+  DIPASANG DI authorize(), BUKAN HANYA DI CONTROLLER. Validasi berjalan
+  SEBELUM controller; kalau pemeriksaannya hanya di controller, permintaan ke
+  gudang lain dengan isian tak lengkap dijawab "isian kurang" alih-alih
+  "bukan wewenang Anda". Karena itu Accept/RejectSalesOrderRequest memakai
+  WarehouseScope::allows() di authorize().
+
+  MANAJEMEN USER: User::canManage() kini menuntut gudang yang sama. Manager
+  Karawang yang bisa menyunting akun Logistik Surabaya sama saja dengan bisa
+  mengambil alih gudang itu — cukup dengan mengganti kata sandinya. Akun
+  lintas gudang (warehouse_id NULL) tidak bisa dikelola Manager mana pun.
+
+  PORTAL SALES: pemilih gudang DIHAPUS dari form Buat Pesanan; `warehouse_id`
+  juga dihapus dari SalesOrderRequest::rules() supaya tidak ada lagi kolom
+  yang bisa dipalsukan. Gudang diisi WarehouseScope::require() dari akun,
+  dan diambil ULANG saat mengubah draft — Sales yang dipindah gudang
+  membawa serta draftnya. lookupProducts() juga tidak lagi membaca
+  warehouse_id dari URL: indikator ketersediaan adalah angka stok yang
+  disamarkan, dan parameter yang bisa diganti berarti Sales bisa mengintip
+  stok gudang lain satu SKU demi satu SKU.
+
+  CAKUPAN WILAYAH: tabel `warehouse_territories` + kolom
+  `warehouses.territory_mode` (all | only | except).
+
+    Karawang  mode=all     (tanpa baris territory)
+    Pekanbaru mode=only    SUMATERA 1, SUMATERA 2
+    Surabaya  mode=except  SUMATERA 1, SUMATERA 2
+
+  Disimpan sebagai BENTUK ATURANNYA, bukan hasil perhitungannya hari ini.
+  Kalau cakupan Karawang ditulis sebagai salinan 14 kode wilayah yang ada
+  sekarang, wilayah ke-15 besok tidak terlayani gudang mana pun — dan tidak
+  ada yang tahu sampai ada pesanan yang ditolak tanpa sebab.
+
+  Pembatasannya BERLAPIS DUA: pencarian pelanggan disaring (Customer::
+  scopeServedBy) DAN penyimpanan divalidasi (SalesOrderRequest). Lapis kedua
+  bukan pengulangan — kolom customer mengirim id, dan id bisa diketik
+  langsung ke permintaan tanpa lewat pencarian sama sekali.
+
+  Pelanggan TANPA territory_code selalu lolos. Master data yang belum
+  lengkap tidak boleh menghilang diam-diam dari pencarian Sales.
+
+  PRODUKSI HANYA DI KARAWANG: kolom `warehouses.has_production`, bukan
+  `if ($code === 'WH-01')` di dalam kode. Perbandingan kode gudang tetap
+  benar sampai hari gudang keempat dibuka atau kodenya diganti — dan pada
+  hari itu ia salah tanpa satu pun test yang gagal. Menu Input Produksi dan
+  Riwayat Produksi disembunyikan di gudang tanpa produksi; Put-away dan
+  Verifikasi TETAP ada, karena barang kiriman pun harus dinaikkan ke rak.
+
+  IMPOR STOK AWAL dibatasi gudang lewat RAK-nya (OpeningStockImporter
+  $warehouseId). Produk dan pelanggan tetap lintas gudang.
+
+  YANG DIUJI: tests/Feature/Wms/WarehouseScopingTest.php (19) dan
+  tests/Feature/Sales/WarehouseCoverageTest.php (12).
+
+  CATATAN PENTING TENTANG TEST LAMA: seluruh 368 test yang ada tetap HIJAU
+  dalam keadaan tanpa pembatasan sama sekali, karena user di test dahulu
+  tidak terikat gudang atau terikat pada satu-satunya gudang yang dibuat.
+  Karena itu tiap test baru selalu membuat DUA gudang dan memeriksa dari
+  sisi gudang yang SALAH. WarehouseFactory sengaja default has_production
+  false, sama dengan default kolomnya — kalau true, test bisa lulus hanya
+  karena factory memberi hak yang tidak dimiliki gudang sungguhan.
+
+  BELUM DIKERJAKAN: alur transfer antar-gudang (PRD F-INV-05). Sampai itu
+  ada, stok Pekanbaru dan Surabaya diisi lewat Impor Stok Awal dan Tambah
+  Stok dari tahap 2.
 
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
