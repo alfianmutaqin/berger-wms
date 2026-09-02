@@ -568,7 +568,7 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
   langkah kecil dan kesalahannya mudah ditemukan:
 
     Tahap 1  Penerimaan pesanan .............. SELESAI
-    Tahap 2  Penyesuaian stok + impor Stok Awal
+    Tahap 2  Penyesuaian stok + impor Stok Awal ... SELESAI
     Tahap 3  Picking
     Tahap 4  Surat jalan & pengiriman
     Tahap 5  Verifikasi bukti
@@ -633,18 +633,67 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
     markup ini artinya keluar dari <form> — product_id-nya diam-diam tidak
     pernah terkirim.
 
-  KEPUTUSAN PEMILIK PRODUK untuk tahap berikutnya (jangan ditawar ulang):
-    - Kekurangan stok dilengkapi lewat PENYESUAIAN STOK oleh Manager/Super
-      Admin (PRD F-INV-02, layar docs/4 §5.2), bukan menunggu produksi.
-      F-INV-02 saat ini hanya bisa MENGOREKSI baris yang sudah ada; tahap 2
-      harus bisa MEMBUAT baris baru, dengan batch, tanggal produksi, dan
-      lokasi tetap WAJIB.
-    - Pengisian stok gudang yang sudah berjalan dilakukan lewat IMPOR STOK
-      AWAL (SKU, batch, tanggal produksi, qty, lokasi), sekali jalan, bukan
-      diketik satu per satu.
-    - TIDAK ADA stok tanpa batch/tanggal produksi. Semuanya wajib diisi
-      sejak pengisian database awal, supaya kedaluwarsa terdeteksi sejak
-      hari pertama dan FIFO langsung benar. Impor menolak baris yang kosong.
+  TAHAP 2 — PENYESUAIAN STOK & IMPOR STOK AWAL — SELESAI
+  Berkas: InventoryController::store, StoreInventoryStockRequest,
+          App\Support\Outbound\PendingAllocationFiller,
+          App\Support\Import\OpeningStockImporter, App\Support\Import\RowRejected
+
+    DUA PINTU MEMASUKKAN STOK TANPA DOKUMEN INBOUND, keduanya Manager &
+    Super Admin saja (gate inventory.adjust), keduanya WAJIB menulis alasan
+    ke stock_movements tipe ADJUSTMENT:
+      1. Tambah Stok — satu baris, untuk sisipan harian.
+      2. Impor Stok Awal — sekali jalan per gudang, untuk go-live.
+    adjust() yang lama TETAP ADA dan hanya MENGOREKSI baris yang sudah ada;
+    store() yang MEMBUAT baris baru.
+
+    BATCH, TANGGAL PRODUKSI, DAN LOKASI WAJIB di kedua pintu. Tidak ada
+    kelonggaran "stok lama" — keputusan pemilik produk. Ketiganya tumpuan
+    FIFO, sweep kedaluwarsa, dan Stok DDP; kalau boleh kosong, seluruh mesin
+    kedaluwarsa Fase 4 melemah diam-diam, dan justru di kondisi go-live
+    dampaknya paling besar karena hampir semua stok masuk lewat pintu ini.
+    LOKASI TIDAK dibuat otomatis: Master Lokasi sudah lengkap, jadi kode
+    asing hampir pasti salah ketik — membuatnya otomatis berarti melahirkan
+    rak hantu yang tidak ada wujudnya di gudang.
+
+    IMPOR IDEMPOTEN: qty DISAMAKAN dengan isi berkas, BUKAN ditambahkan
+    (keputusan pemilik produk). Berkas dianggap kebenaran. Kalau
+    ditambahkan, satu impor ulang yang tidak disengaja melipatgandakan stok
+    seluruh gudang tanpa tanda apa pun, dan baru ketahuan saat opname
+    berikutnya. Kunci barisnya GABUNGAN sku|batch|lokasi|tgl_produksi —
+    satu SKU sah muncul berkali-kali di berkas.
+
+    ALOKASI SUSULAN OTOMATIS, DAN WAJIB DILAPORKAN. Stok yang bertambah
+    langsung mengisi pesanan yang tertahan, urut submitted_at TERLAMA dulu
+    (itu yang paling dekat melanggar SLA §7.6). Otomatis TANPA laporan
+    berbahaya: Manager mengira menambah 50, yang bebas ternyata 35, dan
+    tidak ada apa pun di layar yang menjelaskan ke mana 15 sisanya —
+    karena itu hasilnya selalu disebut lengkap dengan nomor PO-nya.
+    Pesanan yang SUDAH LEWAT PICKING sengaja tidak diisi lagi: barangnya
+    sudah diambil dari rak dan daftar pickingnya sudah dicetak, jadi alokasi
+    susulan tidak akan pernah ikut terkirim.
+
+    Koreksi yang MENGURANGI qty tidak memicu apa pun — tidak ada yang bisa
+    dibagikan. Stok yang baru ditandai DDP juga dilewati: barangnya ada,
+    tapi tidak boleh dijual.
+
+    App\Support\Import\RowRejected DITAMBAHKAN ke kerangka impor: importer
+    kini bisa menolak SATU BARIS dari dalam persist() dengan alasan yang
+    terbaca, dan sisa berkas tetap jalan. Sebelumnya penolakan semacam itu
+    hanya bisa lewat RuntimeException, yang naik sampai ImportController dan
+    menghentikan seluruh impor — kegagalan yang sudah kita bereskan pada
+    impor pelanggan.
+
+    Nama rute pratinjau impor kini DIKIRIM controller, bukan disusun view
+    dari slug tipe. View lama menebak "wms.{type}.import.cancel", yang
+    kebetulan cocok untuk products/customers tetapi meledak seketika untuk
+    tipe yang slug dan segmen rutenya berbeda (opening-stock -> inventory).
+
+    BELUM ADA (sengaja, pemilik produk memilih "otomatis + laporan" dan
+    BUKAN opsi yang menyertakan halaman pantau): daftar berdiri sendiri
+    berisi pesanan yang masih menunggu stok. Akibatnya, pesanan yang
+    menunggu SKU yang stoknya nol tidak terlihat di mana pun sampai tahap
+    picking. Kalau ini terasa mengganggu saat dipakai, halaman itulah
+    obatnya.
 
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
