@@ -847,9 +847,78 @@ LANGKAH B — PEMBATASAN GUDANG — SELESAI
   false, sama dengan default kolomnya — kalau true, test bisa lulus hanya
   karena factory memberi hak yang tidak dimiliki gudang sungguhan.
 
-  BELUM DIKERJAKAN: alur transfer antar-gudang (PRD F-INV-05). Sampai itu
-  ada, stok Pekanbaru dan Surabaya diisi lewat Impor Stok Awal dan Tambah
-  Stok dari tahap 2.
+  Alur transfer antar-gudang (F-INV-05) menyusul di blok berikutnya.
+
+
+LANGKAH D — TRANSFER ANTAR GUDANG (F-INV-05) — SELESAI
+
+  Inilah cara stok sampai ke Pekanbaru dan Surabaya. Produksi hanya ada di
+  Karawang, jadi dua gudang lain TIDAK punya jalur inbound sama sekali —
+  sebelum ini satu-satunya pintu masuknya Impor Stok Awal dan Tambah Stok.
+
+  DUA LANGKAH, DENGAN KEADAAN KETIGA DI TENGAHNYA
+  ------------------------------------------------
+    dikirim    -> TRANSFER_OUT di gudang asal, qty keluar dari stok
+    (di jalan) -> BUKAN MILIK SIAPA PUN, tidak bisa dijual atau dipicking
+    diterima   -> TRANSFER_IN di gudang tujuan, sebanyak yang benar sampai
+    dibatalkan -> TRANSFER_IN di gudang ASAL, stok kembali ke raknya
+
+  Keputusan pemilik produk. Karawang ke Pekanbaru butuh berhari-hari; kalau
+  stok langsung mendarat saat tombol Kirim ditekan, Sales Pekanbaru bisa
+  menjual barang yang masih di atas truk, lalu pesanannya tidak bisa
+  dipicking ketika kirimannya terlambat.
+
+  YANG IKUT PINDAH DAN YANG TIDAK — ini permintaan eksplisit pemilik produk:
+    IKUT  : batch_no, production_date, expiry_date, status, ddp_reason
+    RESET : lokasi rak, karena penomoran rak tiap gudang berbeda
+
+  Umur barang TIDAK BOLEH lahir kembali karena berpindah gudang. Kalau
+  production_date dihitung ulang, FIFO di gudang tujuan menganggap barang
+  lama sebagai barang baru — dan penarikan stok yang mendekati kedaluwarsa
+  dari Pekanbaru kembali ke Karawang jadi mustahil, karena umurnya hilang.
+  Status DDP juga ikut: barang rusak tidak jadi layak jual karena pindah rak.
+
+  SELISIH DI PERJALANAN: penerima mengisi qty yang BENAR-BENAR sampai;
+  alasannya WAJIB bila kurang. Selisihnya TIDAK punya mutasi tersendiri —
+  barangnya sudah dikurangi saat kirim dan memang tidak pernah ditambahkan
+  saat terima; mutasi ketiga akan menghitungnya dua kali. Diterima lebih
+  banyak daripada yang dikirim DITOLAK (CHECK constraint): itu berarti
+  hitungan di gudang asal yang keliru, dan diperbaiki lewat Penyesuaian Stok.
+
+  RAK DIISI SEKALIGUS SAAT MENERIMA (keputusan pemilik produk): satu layar,
+  satu kali kerja, stok langsung siap dijual. Kode rak yang diminta adalah
+  kode rak GUDANG TUJUAN — kekeliruan yang paling mudah terjadi di layar itu,
+  jadi pesan galatnya menyebutkannya secara khusus.
+
+  KIRIMAN YANG SAMPAI IKUT MENGISI PESANAN YANG MENUNGGU STOK, sama seperti
+  Penyesuaian Stok dan Impor Stok Awal (tahap 2). Tanpa itu, transfer jadi
+  satu-satunya pintu masuk stok yang tidak menyusul pesanan tertunda.
+
+  WEWENANG — satu dokumen, DUA gudang. Ini bentuk data pertama yang tidak
+  dimiliki satu gudang saja, jadi penyaringannya TIDAK memakai
+  WarehouseScope::apply() (satu kolom) melainkan
+  StockTransfer::touchingWarehouse() (asal ATAU tujuan). Yang tetap ketat:
+    - hanya gudang ASAL yang boleh mengirim dan membatalkan
+    - hanya gudang TUJUAN yang boleh menerima
+    - gudang yang tidak terlibat: 403, termasuk di URL detail
+
+  Gate-nya DIPISAH dari INVENTORY_TRANSFER (pemindahan antar rak dalam satu
+  gudang): memindahkan palet ke rak sebelah dan mengirim satu truk ke
+  Pekanbaru bukan wewenang yang sama besarnya.
+
+  Nomor dokumen TF{YYMMDD}{NNN}, lintas gudang (bukan per gudang) — satu
+  dokumen dibaca dua gudang, dan nomor yang diulang di tiap gudang membuat
+  "TF260913001" berarti dua kiriman berbeda tergantung siapa yang menyebutnya.
+
+  PEMBATALAN menolak bekerja bila baris stok asalnya sudah tidak ada: batch
+  dan tanggalnya diketahui, tetapi RAK asalnya tidak. Menebak rak berarti
+  menaruh barang di tempat yang nanti dicari orang dan tidak ketemu.
+
+  DIUJI: tests/Feature/Wms/StockTransferTest.php (26).
+
+  CATATAN: SmokeRouteTest sempat merah karena rute baru {transfer} belum
+  punya contoh nilai — itu memang tugas test tersebut, dan penjagaannya
+  bekerja persis seperti yang dirancang.
 
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
