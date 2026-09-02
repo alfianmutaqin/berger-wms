@@ -564,6 +564,88 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
   penuh: approval, picking batching, picking, generate surat jalan, verifikasi
   bukti kirim.
 
+  DIPECAH JADI BEBERAPA TAHAP atas permintaan pemilik produk, supaya tiap
+  langkah kecil dan kesalahannya mudah ditemukan:
+
+    Tahap 1  Penerimaan pesanan .............. SELESAI
+    Tahap 2  Penyesuaian stok + impor Stok Awal
+    Tahap 3  Picking
+    Tahap 4  Surat jalan & pengiriman
+    Tahap 5  Verifikasi bukti
+
+  TAHAP 1 — PENERIMAAN PESANAN — SELESAI
+  Migration: add_acceptance_fields_to_sales_orders_table
+  Berkas: OrderApprovalController, AcceptSalesOrderRequest,
+          RejectSalesOrderRequest, App\Support\Outbound\FifoAllocator,
+          wms/outbound/approval{,-detail,-history}.blade.php
+
+    JANJI vs CADANGAN — pembedaan terpenting di tahap ini.
+    `qty_approved` = yang DIJANJIKAN ke customer.
+    `sales_order_allocations` = yang BENAR-BENAR dicadangkan dari stok.
+    Keduanya BOLEH BERBEDA. Logistik berwenang menyetujui MELEBIHI stok
+    tercatat, karena di Berger barang sering sudah sampai gudang tetapi
+    belum di-putaway, dan pesanan tidak boleh tertahan karenanya.
+    Selisihnya TIDAK disembunyikan: ditampilkan sebagai "menunggu stok",
+    belum bisa dipicking, dan jumlahnya muncul di pesan setelah menerima.
+
+    JANGAN memaksakan kelebihan itu menjadi alokasi. inventory_stocks punya
+    CHECK (qty_available >= 0) — memaksakannya bukan menghasilkan angka
+    minus melainkan MEMBATALKAN seluruh transaksi dengan galat constraint
+    mentah. FifoAllocator sengaja mengembalikan "berapa yang berhasil",
+    bukan melempar galat, supaya sisanya bisa dilaporkan.
+
+    ALOKASI DIJALANKAN SAAT TERIMA, BUKAN DITUNDA KE PICKING. Kalau
+    ditunda, dua Logistik yang menerima dua pesanan pada menit yang sama
+    sama-sama melihat "stok 10" dan sama-sama menjanjikannya; yang kedua
+    baru ketahuan di rak. Angka stok di layar juga BISA BASI, jadi
+    alokasinya dihitung ulang di dalam transaksi saat tombol ditekan —
+    bukan dipercaya dari kiriman form.
+
+    MENYIMPANG dari PRD F-OUT-02 langkah 3 (disetujui pemilik produk):
+    sistem TIDAK memotong qty secara otomatis dan mengunci hasilnya.
+    min(pesan, stok) hanya USULAN yang terisi di kolom "Setuju"; Logistik
+    boleh menaikkannya sampai batas qty pesanan. Sumber kebenaran angka
+    final adalah sistem BC, bukan hitungan stok kami.
+
+    NOMOR SO (bc_so_number) wajib saat MENERIMA dan UNIK — ditegakkan
+    indeks unik parsial di database, bukan hanya FormRequest, karena dua
+    Logistik yang menekan Terima bersamaan sama-sama lolos pemeriksaan
+    "sudah dipakai belum". MENOLAK tidak meminta nomor SO sama sekali:
+    pesanan yang ditolak memang tidak pernah masuk BC.
+
+    METODE DOKUMEN: kisinya kosong. Logistik mengunduh lampiran, memasukkan
+    ke BC, lalu menempelkan hasilnya (dua kolom: SKU lalu Qty) — qty dari
+    tempelan itulah yang dipakai apa adanya, TIDAK dipotong sesuai stok.
+    Deskripsi produk diisi sistem dari SKU lewat POST .../resolve, BUKAN
+    dari tempelan, supaya nama versi BC yang berbeda tidak masuk basis data.
+
+    KISI MIRIP EXCEL: angka ditulis TANPA pemisah ribuan supaya hasil
+    salinan langsung terbaca Excel sebagai angka. Karena kolom "Setuju"
+    adalah <input>, menyeleksi tabel lalu menyalin TIDAK ikut membawa
+    nilainya — karena itu ada tombol "Salin ke Excel" yang membangun TSV
+    dari nilai terkini. Ada jalan mundur ke execCommand('copy'): API
+    clipboard hanya bekerja di HTTPS/localhost dan gagal DIAM-DIAM di
+    jaringan kantor lewat http://.
+
+    HATI-HATI saat menyunting approval-detail.blade.php: input tersembunyi
+    HARUS berada di dalam <td>, bukan langsung di bawah <tr>. Parser HTML
+    memindahkan elemen non-sel ke LUAR tabel (foster parenting), dan di
+    markup ini artinya keluar dari <form> — product_id-nya diam-diam tidak
+    pernah terkirim.
+
+  KEPUTUSAN PEMILIK PRODUK untuk tahap berikutnya (jangan ditawar ulang):
+    - Kekurangan stok dilengkapi lewat PENYESUAIAN STOK oleh Manager/Super
+      Admin (PRD F-INV-02, layar docs/4 §5.2), bukan menunggu produksi.
+      F-INV-02 saat ini hanya bisa MENGOREKSI baris yang sudah ada; tahap 2
+      harus bisa MEMBUAT baris baru, dengan batch, tanggal produksi, dan
+      lokasi tetap WAJIB.
+    - Pengisian stok gudang yang sudah berjalan dilakukan lewat IMPOR STOK
+      AWAL (SKU, batch, tanggal produksi, qty, lokasi), sekali jalan, bukan
+      diketik satu per satu.
+    - TIDAK ADA stok tanpa batch/tanggal produksi. Semuanya wajib diisi
+      sejak pengisian database awal, supaya kedaluwarsa terdeteksi sejak
+      hari pertama dan FIFO langsung benar. Impor menolak baris yang kosong.
+
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
              add_sales_return_fk_to_inventory_stocks_table (FK susulan)
