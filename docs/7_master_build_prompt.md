@@ -1173,10 +1173,37 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
     yang sama dengan pembatalan setelah picking (PickingRun::masukkanKembali),
     ke rak dan batch yang dibekukan di baris picking.
 
-    SJ LEBIH BANYAK DARIPADA YANG DIPICKING = DITOLAK. Kasus ini TIDAK
-    disebut pemilik produk dan diputuskan sendiri: mengirim 12 padahal 10
-    yang diambil dari rak mustahil secara fisik. Mengikuti dokumen di sini
-    bukan "menghormati BC" melainkan membuat catatan stok berbohong.
+    SJ LEBIH BANYAK DARIPADA YANG DIPICKING = TEMUAN STOK KURANG, BUKAN
+    DITOLAK. Rancangan awal saya MENOLAK kasus ini dengan alasan "mengirim 12
+    padahal 10 yang diambil mustahil secara fisik". Pemilik produk
+    mengoreksinya, dan alasannya lebih kuat: dokumen BC adalah kebenaran yang
+    disetujui, jadi kalau SJ menyebut 12 keluar sementara yang tercatat
+    dipicking hanya 10, yang keliru BUKAN dokumennya melainkan angka stok
+    kami — "berarti stok di gudang ada yang kurang".
+
+    Menolaknya MENYEMBUNYIKAN temuan itu alih-alih mencegahnya. Yang benar:
+    qty SJ tetap dipakai sebagai yang terkirim, dan kekurangannya dikeluarkan
+    dari stok sehingga angka di sistem turun menyusul kenyataan di rak.
+
+    Mutasinya OUT, BUKAN ADJUSTMENT. Barangnya memang pergi — dokumen resmi
+    menyatakan demikian, dan dokumen itulah dasar tagihan ke customer.
+    Mencatatnya sebagai koreksi membuat laporan pengiriman menyebut 10
+    sementara invoice menyebut 12, dan selisih dua angka itu yang paling
+    mahal ditelusuri belakangan. Yang membedakannya dari OUT biasa adalah
+    CATATANNYA, yang menyebut tegas bahwa qty ini tidak pernah tercatat saat
+    picking dan perlu ditelusuri saat opname.
+
+    Batchnya diambil dari yang memang dipakai pesanan ini lebih dulu, baru
+    FIFO — mengambil dari batch sembarang membuat umur stok sisa berbeda dari
+    kenyataan. Bila stok tercatat pun tidak cukup, sisanya DILAPORKAN dan
+    tidak dipaksakan: CHECK (qty_available >= 0) akan membatalkan seluruh
+    transaksi dengan galat mentah, pelajaran yang sama dengan FifoAllocator.
+
+    NOMOR SO ADALAH ACUAN UTAMA DI LAYAR PICKING, bukan nomor PO (keputusan
+    pemilik produk). Nomor SO yang nanti dicocokkan dengan Surat Jalan dari
+    BC; nomor PO hanya berarti di dalam sistem ini. Karena itu di antrean
+    picking dan rincian daftar, yang ditebalkan nomor SO dan nomor PO turun
+    jadi keterangan kecil.
 
     outstanding_qty DIHITUNG ULANG (qty_ordered - qty_shipped), bukan
     ditambahkan ke nilai lama. Nilai lama adalah selisih saat penerimaan;
