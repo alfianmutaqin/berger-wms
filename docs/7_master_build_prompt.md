@@ -570,7 +570,7 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
     Tahap 1  Penerimaan pesanan .............. SELESAI
     Tahap 2  Penyesuaian stok + impor Stok Awal ... SELESAI
     Tahap 3  Picking ......................... SELESAI
-    Tahap 4  Surat jalan & pengiriman
+    Tahap 4  Surat jalan & pengiriman ....... SELESAI
     Tahap 5  Verifikasi bukti
 
   TAHAP 1 — PENERIMAAN PESANAN — SELESAI
@@ -1116,6 +1116,181 @@ TAHAP 3 — PICKING (F-OUT-03) — SELESAI
     disentuh: ia angka keputusan approval, bukan temuan di rak.
 
     DIUJI: tests/Feature/Wms/PickingTest.php (32).
+
+TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
+  Migration: 2026_09_17_000001_create_delivery_notes_table
+             2026_09_17_000002_add_shipping_to_delivery_notes_table
+  Berkas: DeliveryNote, DeliveryNoteLine,
+          App\Support\Import\DeliveryNoteImporter,
+          App\Support\Outbound\Shipment,
+          App\Support\Messaging\{WhatsAppSender,DispatchResult,
+            ManualWhatsAppSender,LogWhatsAppSender,CloudApiWhatsAppSender},
+          App\Jobs\SendDeliveryNotification,
+          DeliveryController, EpodController, ShipDeliveryNoteRequest,
+          wms/outbound/delivery{,-detail}.blade.php, driver/epod.blade.php
+
+    TEMUAN YANG MENGUBAH SELURUH RANCANGAN TAHAP INI (pemilik produk,
+    2026-09-03): SURAT JALAN RESMI DITERBITKAN SISTEM BC, BUKAN SISTEM INI.
+    Rancangan lama docs/1 F-OUT-04 #6-9 dan docs/2 §3.5 mengandaikan kita
+    yang mencetak, lengkap dengan nomor SJ yang dibangkitkan sendiri
+    (SJ-KRW-2026-00001) dan starting number yang diatur Super Admin.
+    Semuanya GUGUR:
+
+      - Tidak ada nomor SJ yang dibangkitkan di sini. `document_no` disalin
+        dari kolom "Document No." milik BC.
+      - Tidak ada tombol cetak. Menyediakannya melahirkan dokumen kedua yang
+        bersaing dengan dokumen resminya.
+      - Kolom printed_at/printed_by rancangan lama tidak dipakai; yang
+        terjadi bukan pencetakan melainkan PENYALINAN.
+      - Pertanyaan "kode gudang KRW/PKU/SBY vs WH-0x" yang sengaja ditunda
+        sejak sisipan multi-gudang IKUT GUGUR — tidak ada lagi nomor dokumen
+        kita yang membutuhkannya.
+
+    Peran sistem ini: MENDUKUNG TRANSPARANSI. Ia mencocokkan apa yang
+    benar-benar diambil dari rak dengan apa yang tertulis di dokumen resmi,
+    lalu menyimpan jejaknya.
+
+    ALUR: Logistik mengunggah ekspor SJ dari BC (per hari, atau per container
+    yang mau berangkat) -> sistem mencocokkan lewat nomor SO -> layar
+    menampilkan qty BC berdampingan dengan qty hasil picking -> Logistik
+    mengisi data supir dan menyatakan berangkat -> tautan konfirmasi dikirim
+    ke WhatsApp supir -> supir menekan "Barang Sudah Sampai".
+
+    DIPERIKSA KE DATA NYATA SEBELUM DIRANCANG, dan ini yang membuat seluruh
+    pencocokan mungkin: kolom "No." di ekspor BC (ID1-F0017X002820) SAMA
+    PERSIS dengan SKU kami — ketiga contoh dari pemilik produk ketemu, dan
+    seluruh 1.735 SKU berpola ID1-. "Sell-to Customer No." (IDR13302) juga
+    sama dengan customers.code. Jadi satu berkas bisa dicocokkan di tiga
+    sisi sekaligus.
+
+    QTY BC YANG MENANG (keputusan pemilik produk), TETAPI BARANGNYA IKUT
+    PINDAH. Contoh persis dari beliau: dipesan 15, dipicking 10, di SJ hanya
+    8. Maka yang berangkat 8, Outstanding jadi 7, dan 2 pail yang SUDAH turun
+    dari rak DIKEMBALIKAN ke stok. Bagian terakhir itu yang paling mudah
+    terlewat: barangnya nyata, ada di loading dock, tidak ikut naik. Tanpa
+    mengembalikannya, stok tercatat berkurang 10 sementara yang pergi hanya 8
+    dan selisihnya baru ketahuan saat opname. Pengembaliannya memakai jalur
+    yang sama dengan pembatalan setelah picking (PickingRun::masukkanKembali),
+    ke rak dan batch yang dibekukan di baris picking.
+
+    SJ LEBIH BANYAK DARIPADA YANG DIPICKING = DITOLAK. Kasus ini TIDAK
+    disebut pemilik produk dan diputuskan sendiri: mengirim 12 padahal 10
+    yang diambil dari rak mustahil secara fisik. Mengikuti dokumen di sini
+    bukan "menghormati BC" melainkan membuat catatan stok berbohong.
+
+    outstanding_qty DIHITUNG ULANG (qty_ordered - qty_shipped), bukan
+    ditambahkan ke nilai lama. Nilai lama adalah selisih saat penerimaan;
+    menambahkannya menghitung kekurangan yang sama dua kali pada pesanan yang
+    memang sejak awal disetujui sebagian.
+
+    IMPOR IDEMPOTEN, DAN LEBIH DARI ITU. Selain qty disamakan (bukan
+    ditambahkan), baris yang DICABUT di BC ikut hilang saat impor ulang:
+    saat satu dokumen pertama kali disentuh dalam satu impor, seluruh baris
+    lamanya dihapus. Kalau tertinggal, qty-nya ikut terhitung saat
+    pencocokan dan barang yang sudah dicabut dari dokumen resmi tampak masih
+    harus dikirim. Dokumen yang TIDAK disebut berkas tidak disentuh.
+
+    QTY BERKOMA. Ekspor BC menulis "1," dan "10," untuk 1 dan 10 — koma
+    pemisah desimal, disertakan meski tanpa angka di belakang. Pecahan
+    DITOLAK, bukan dibulatkan: "2,5 pail" di dokumen resmi adalah tanda
+    berkasnya salah.
+
+    SJ TANPA PASANGAN BUKAN KEGAGALAN, TAPI WAJIB TERLIHAT. Ekspor harian BC
+    memuat SJ seluruh perusahaan, termasuk pesanan yang tidak lewat portal
+    ini. Ia disimpan dengan sales_order_id NULL dan diberi kartu tersendiri
+    di layar — karena kalau sebuah SJ SEHARUSNYA berpasangan dan ternyata
+    tidak, artinya nomor SO di BC berbeda dari yang diketik Logistik saat
+    menerima pesanan, dan itu ketahuan di sini atau tidak sama sekali.
+
+    Pencocokan nomor SO menghormati penggabungan invoice: whereNull
+    (so_merged_into_id), karena nomor dipegang pesanan INDUK.
+
+    TIDAK ADA MASTER SUPIR (keputusan pemilik produk, dan alasannya tepat):
+    supir berganti tiap hari dan sebagian besar dari perusahaan jasa lain,
+    sehingga data induk hanya melahirkan ratusan baris tak terawat. Yang
+    dilindungi karena itu bukan datanya melainkan NOMORNYA:
+
+      - PhoneNumber::forWhatsApp() DITAMBAHKAN. normalize() yang lama hanya
+        membuang hiasan dan MEMBIARKAN "081234567890" apa adanya, karena
+        itulah bentuk dari ERP. WhatsApp tidak mengenal awalan nol nasional:
+        mengirim ke "0812..." bukan gagal dengan galat melainkan diterima
+        sebagai nomor negara lain — kegagalan yang tidak berbunyi.
+      - Bentuk nomor diperiksa (62 + 9..13 digit), bukan sekadar "wajib
+        diisi". Salah ketik nomor gagalnya DIAM, dan yang menemukannya
+        adalah Logistik keesokan harinya saat menanyakan kenapa belum
+        dikonfirmasi.
+      - Nomor yang akan benar-benar dipakai DITAMPILKAN KEMBALI di layar
+        sambil diketik.
+      - Riwayat nomor yang pernah dipakai jadi saran ketik. Daftar ini tumbuh
+        SENDIRI dari pengiriman yang sudah terjadi; tidak ada yang perlu
+        merawatnya, tapi ia menolong pada kasus tersering: supir vendor yang
+        sama datang lagi.
+
+    WHATSAPP: SATU ANTARMUKA, PENYEDIA BISA DIGANTI LEWAT KONFIGURASI.
+    Bawaannya `manual` — sistem menyiapkan pesan + tautan, Logistik menekan
+    kirim lewat WhatsApp-nya sendiri. Berpindah ke Cloud API resmi Meta hanya
+    mengubah WHATSAPP_DRIVER, tidak menyentuh satu baris pun di alur
+    pengiriman barang.
+
+    KENAPA MANUAL YANG JADI BAWAAN, dan kenapa gateway lokal justru paling
+    berbahaya DI KASUS INI: nomor tujuannya adalah supir pihak ketiga yang
+    BERGANTI SETIAP HARI. Bagi gateway tidak resmi (Fonnte/Wablas, yang
+    menumpang WhatsApp Web), mengirim ke nomor yang selalu baru tanpa
+    percakapan sebelumnya adalah pola yang paling cepat dianggap spam — dan
+    yang hilang saat nomor diblokir bukan fitur ini, melainkan nomor
+    WhatsApp perusahaan beserta seluruh riwayatnya. Jalur resmi Meta
+    menghindarinya, tetapi verifikasinya hitungan minggu dan pengiriman
+    barang tidak boleh menunggu.
+
+    Mode `manual` mengembalikan status `manual`, BUKAN `failed`. Pada mode
+    itu "belum terkirim" adalah cara kerja normal yang menunggu satu ketukan
+    manusia; menyamakannya dengan gagal membuat layar penuh peringatan merah
+    pada hari yang berjalan normal — dan peringatan yang selalu menyala
+    berhenti dibaca.
+
+    Bila driver 'cloud' dipilih tetapi kredensialnya belum lengkap, sistem
+    TURUN ke manual alih-alih melempar galat: kredensial kosong adalah
+    keadaan yang sangat mungkin (menunggu verifikasi Meta), dan matinya harus
+    berupa "kirim manual dulu", bukan halaman Surat Jalan yang meledak.
+
+    STATUS PESAN TERPISAH DARI STATUS BARANG. Kalau WhatsApp gagal, truk
+    tetap berangkat (keputusan pemilik produk) — menjadikan keberhasilan
+    kirim sebagai syarat berangkat berarti gangguan penyedia pihak ketiga
+    bisa menghentikan pengiriman seluruh gudang. Kegagalannya ditandai
+    dengan alasannya, plus tombol kirim ulang dan salin tautan.
+
+    Pengiriman pesan DIANTREKAN: panggilan ke penyedia bisa menggantung, dan
+    menjalankannya di dalam permintaan HTTP membuat tombol Kirim seolah rusak
+    padahal pengirimannya sudah tercatat. Job memeriksa "sudah terkirim,
+    jangan ulang" — antrean bisa menjalankannya ulang setelah gangguan, dan
+    supir yang menerima pesan sama tiga kali berhenti membacanya.
+
+    E-POD: rute {po_number} DIGANTI jadi {token}. Yang lama berarti siapa pun
+    yang tahu (atau menebak) nomor PO bisa menyatakan kiriman orang lain
+    sudah sampai. Token acak 48 karakter, disimpan sebagai kolom, dan
+    rutenya dibatasi kecepatan (throttle:30,1) supaya tidak bisa dicari
+    dengan mencoba satu per satu. Token tak dikenal DAN dokumen yang belum
+    berangkat dijawab 404 yang sama.
+
+    Konfirmasi supir memindahkan pesanan ke PROOF_UPLOADED, bukan COMPLETED:
+    sampai BUKAN selesai — bukti Surat Jalan bertanda tangan masih harus
+    diunggah dan diverifikasi (F-OUT-05, tahap 5).
+
+    CATATAN TEST: antrean di test memakai driver `sync`, sehingga job
+    berjalan DI DALAM permintaan HTTP. Test yang penyedianya sengaja dibuat
+    gagal ikut mengulang beserta jeda backoff 30 detik — satu test sempat
+    memakan 36 detik. Pakai Queue::fake() lalu jalankan job-nya sendiri.
+    Tanpa itu, test "tidak dikirim dua kali" juga lulus karena alasan yang
+    salah.
+
+    DIUJI: tests/Feature/Wms/DeliveryNoteImportTest.php (15),
+           tests/Feature/Wms/ShipmentTest.php (22).
+
+    YANG PERLU DISIAPKAN PEMILIK PRODUK bila mau naik ke Cloud API resmi:
+    akun Meta Business terverifikasi, satu nomor telepon KHUSUS yang belum
+    pernah dipakai WhatsApp biasa (dan sesudah dipakai Cloud API tidak bisa
+    kembali jadi WhatsApp biasa), serta template kategori "utility" yang
+    disetujui Meta.
 
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
