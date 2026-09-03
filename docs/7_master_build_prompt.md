@@ -574,6 +574,8 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
     Tahap 5  Verifikasi bukti
 
   TAHAP 1 — PENERIMAAN PESANAN — SELESAI
+  (Disempurnakan kemudian oleh SUSULAN TAHAP 1 di bawah blok ini —
+   pembatalan setelah diterima + penggabungan invoice. Baca keduanya.)
   Migration: add_acceptance_fields_to_sales_orders_table
   Berkas: OrderApprovalController, AcceptSalesOrderRequest,
           RejectSalesOrderRequest, App\Support\Outbound\FifoAllocator,
@@ -632,6 +634,83 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
     memindahkan elemen non-sel ke LUAR tabel (foster parenting), dan di
     markup ini artinya keluar dari <form> — product_id-nya diam-diam tidak
     pernah terkirim.
+
+  SUSULAN TAHAP 1 — PEMBATALAN & GABUNG INVOICE — SELESAI
+  (temuan lapangan pemilik produk, 2026-09-03)
+  Migration: add_cancellation_and_invoice_merge_to_sales_orders_table
+  Berkas: App\Support\Outbound\OrderCanceller, SalesOrderCancellation,
+          OrderApprovalController::{cancel,checkSoNumber},
+          AcceptSalesOrderRequest::tolakNomorSoBermasalah
+
+    KEKELIRUAN YANG DIPERBAIKI: aturan tahap 1 memperlakukan nomor SO
+    sebagai unik SELAMANYA. Di sistem BC ia hanya unik SELAMA PESANANNYA
+    MASIH HIDUP, dan ada dua cara nomor yang sama sah dipakai lagi:
+
+      1. Pemegang lamanya DIBATALKAN — customer batal, atau BC tidak
+         menyetujui. Di BC nomor yang gagal dipakai ulang untuk pesanan
+         berikutnya yang berhasil; tidak ada nomor yang terbuang.
+      2. PESANAN TAMBAHAN untuk pelanggan yang SAMA, digabung ke satu
+         invoice — pesanan hari ini menumpang nomor SO kemarin.
+
+    ATURAN UNIKNYA TIDAK DICABUT, hanya diberi dua pintu keluar. Alasannya
+    masih berlaku: nomor SO berulang PADA UMUMNYA berarti Logistik belum
+    benar-benar memasukkan pesanan ke BC. Mencabutnya membuat kesalahan itu
+    tidak akan pernah ketahuan lagi dari sistem ini.
+
+    PEMBEDA YANG MENENTUKAN: PELANGGAN YANG SAMA. Penggabungan invoice
+    hanya masuk akal untuk satu pelanggan. Nomor SO sama pada pelanggan
+    BERBEDA tetap ditolak keras — itulah kasus yang aturan ini ada untuk
+    menangkap, dan mencentang "gabung invoice" TIDAK bisa menembusnya.
+
+    Pintu 1 bekerja tanpa mengubah indeks sama sekali: pembatalan
+    MENGOSONGKAN bc_so_number, jadi nomornya tidak lagi dipegang siapa pun.
+    Pintu 2 memakai so_merged_into_id, dan indeks unik dipersempit menjadi
+    "hanya INDUK yang memegang nomor" (WHERE so_merged_into_id IS NULL).
+
+    BATAS PEMBATALAN: selama barangnya BELUM BERANGKAT (approved, picking,
+    ready_to_ship). Sesudah Surat Jalan terbit, pengembalian adalah RETUR
+    (Fase 7) — barangnya sudah di tangan orang lain, dan mencabut catatannya
+    di sini hanya membuat angka stok berbohong.
+
+    PESANAN KEMBALI KE ANTREAN, bukan ditutup (keputusan pemilik produk).
+    Pesanan yang ditolak BC lazimnya diperbaiki lalu diajukan lagi dengan
+    nomor SO baru, dan Sales tidak perlu mengetik ulang seluruh item. Bila
+    pembatalannya memang final, Logistik menolaknya dari antrean.
+
+    RIWAYAT DUA LAPIS, dan ini yang mudah salah dirancang. Kolom pembatalan
+    di `sales_orders` hanya KEADAAN SEKARANG dan DIBERSIHKAN saat pesanan
+    diterima lagi. Tabel `sales_order_cancellations` TIDAK PERNAH
+    dibersihkan — tanpa itu, fakta bahwa suatu nomor SO pernah dipakai lalu
+    dilepas akan hilang, padahal justru itu yang ditelusuri ketika angka di
+    BC dan WMS berbeda.
+
+    MEMBATALKAN INDUK ikut melepas pesanan tambahannya. Kalau tidak, ada
+    pesanan berstatus diterima dengan nomor SO yang tidak ada di BC.
+
+    Saringan "diterima" di riwayat TIDAK memuat yang sudah dibatalkan:
+    pesanan itu memang pernah diterima, tetapi hasil akhirnya bukan itu
+    lagi, dan menghitungnya membuat rekap penerimaan lebih besar daripada
+    yang benar-benar berjalan.
+
+    Nomor SO diperiksa SAMBIL DIKETIK (POST approval/{order}/check-so),
+    bukan saat submit: pada pesanan bermetode dokumen, ditolak setelah
+    menekan Terima berarti seluruh tempelan dari BC harus diulang. Layar
+    dan server memakai SATU fungsi yang sama
+    (AcceptSalesOrderRequest::pemegangNomorSo) supaya tidak pernah berbeda
+    jawaban.
+
+    DIUJI: tests/Feature/Wms/OrderCancellationTest.php (22).
+
+    TEMUAN SAMPINGAN — TEST FLAKY YANG SUDAH LAMA ADA. Saat menjalankan
+    rangkaian penuh, test_pencarian_customer_hanya_mengembalikan_yang_cocok
+    gagal sekitar SATU DARI TIGA kali. Sebabnya: Customer::scopeSearch ikut
+    mencari kolom EMAIL, sedangkan faker proyek ini berlocale id_ID
+    (config/app.php), sehingga email acaknya lazim memuat "wijaya" atau
+    "harjaya" — keduanya cocok dengan "%Jaya%". Diperbaiki dengan mengisi
+    email kedua customer secara eksplisit di test itu; 11 kali jalan
+    berturut-turut bersih sesudahnya. Kalau menulis test pencarian baru,
+    ingat bahwa NAMA saja tidak cukup dikunci — kolom lain yang ikut dicari
+    juga harus deterministik.
 
   TAHAP 2 — PENYESUAIAN STOK & IMPOR STOK AWAL — SELESAI
   Berkas: InventoryController::store, StoreInventoryStockRequest,
