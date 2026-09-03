@@ -569,7 +569,7 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
 
     Tahap 1  Penerimaan pesanan .............. SELESAI
     Tahap 2  Penyesuaian stok + impor Stok Awal ... SELESAI
-    Tahap 3  Picking
+    Tahap 3  Picking ......................... SELESAI
     Tahap 4  Surat jalan & pengiriman
     Tahap 5  Verifikasi bukti
 
@@ -838,7 +838,7 @@ SISIPAN — MULTI-GUDANG (keputusan pemilik produk, 2026-09-02)
   URUTAN PENGERJAAN:
     Langkah A  istilah Outstanding + nama gudang ......... SELESAI
     Langkah B  pembatasan gudang ........................ SELESAI
-    Langkah C  baru tahap 3 (picking)
+    Langkah C  baru tahap 3 (picking) ................... SELESAI
 
 
 LANGKAH B — PEMBATASAN GUDANG — SELESAI
@@ -998,6 +998,124 @@ LANGKAH D — TRANSFER ANTAR GUDANG (F-INV-05) — SELESAI
   CATATAN: SmokeRouteTest sempat merah karena rute baru {transfer} belum
   punya contoh nilai — itu memang tugas test tersebut, dan penjagaannya
   bekerja persis seperti yang dirancang.
+
+TAHAP 3 — PICKING (F-OUT-03) — SELESAI
+  Migration: 2026_09_16_000001_create_picking_lists_table
+  Berkas: PickingList, PickingListItem,
+          App\Support\Outbound\PickingListBuilder (Logistik),
+          App\Support\Outbound\PickingRun (Operator),
+          PickingController, StorePickingListRequest,
+          ReportPickingShortageRequest,
+          wms/outbound/picking{-batching,,-detail}.blade.php
+
+    SATU DAFTAR MEMUAT BANYAK PESANAN — keputusan pemilik produk, dan ini
+    yang menentukan seluruh bentuk datanya. Satu pesanan sering hanya berisi
+    beberapa item, sedangkan satu container yang berangkat memuat pesanan
+    dari banyak toko sekaligus. Logistik menentukan siapa berangkat bersama;
+    operator mengambil seluruhnya dalam SATU kali jalan. Kalau daftarnya per
+    pesanan, operator bolak-balik ke rak yang sama sebanyak jumlah pesanan.
+
+    DUA ORANG, DUA WEWENANG. PickingListBuilder untuk Logistik (menyusun,
+    membubarkan), PickingRun untuk Operator (ambil tugas, tandai, Siap
+    Loading). Sengaja dipisah: yang menentukan isi container bukan yang
+    berjalan ke rak. Menyatukannya berarti operator bisa memilih sendiri
+    pesanan mana yang ia kerjakan hari ini.
+
+    KOLOM sales_orders.picking_list_id, BUKAN TABEL PIVOT. Satu pesanan
+    hanya boleh ada di SATU daftar; pivot membuat "dua daftar memuat pesanan
+    yang sama" bisa terjadi, dan akibatnya barangnya diambil dua kali oleh
+    dua operator — yang kedua baru sadar di rak.
+
+    BARISNYA DIBEKUKAN SAAT DAFTAR DIBUAT, bukan dihitung ulang dari alokasi
+    tiap kali layar dibuka. Daftar ini dicetak dan dibawa berjalan; kalau
+    isinya berubah di belakang layar, kertas di tangan operator dan layar di
+    kantor menunjukkan dua hal berbeda — dan yang dipercaya operator adalah
+    kertasnya. Konsekuensinya PendingAllocationFiller kini juga MELEWATI
+    pesanan yang picking_list_id-nya terisi, bukan hanya yang sudah lewat
+    picking: alokasi susulan tidak akan pernah muncul di kertas itu.
+
+    SATU BARIS PER BATCH, BUKAN PER SKU. Pesanan 30 bisa terpecah ke dua
+    batch di dua rak karena FIFO. Meleburnya jadi satu baris membuat operator
+    menebak sendiri dari rak mana ia mengambil, dan tebakan itulah yang
+    merusak urutan FIFO yang sudah susah payah dihitung.
+
+    TIGA MUTASI SAAT SIAP LOADING, DAN INI YANG PALING MUDAH "DISEDERHANAKAN"
+    LALU DIAM-DIAM MERUSAK BUKU BESAR:
+
+        DEALLOCATED  +qty_to_pick   cadangannya berakhir
+        OUT          -qty_diambil   yang benar-benar menuju customer
+        ADJUSTMENT   -qty_kurang    yang ternyata TIDAK ADA di rak
+
+    Alasannya: saat alokasi dibuat, barangnya SUDAH dikurangi dari
+    qty_available dan dipindahkan ke qty_allocated. Jadi ketika barangnya
+    turun dari rak, qty_available TIDAK berubah lagi — menuliskan satu baris
+    OUT negatif saja akan mengurangi barang yang sama untuk KEDUA KALINYA di
+    ledger, dan tidak ada satu layar pun yang menampilkan itu. Jumlah ketiga
+    baris nol terhadap qty_available; yang berkurang adalah qty_allocated.
+    JANGAN GABUNGKAN. Selisih picking bukan "barang keluar": ia tidak pernah
+    sampai ke customer, dan menghitungnya sebagai OUT membuat laporan
+    pengiriman lebih besar daripada yang benar-benar dikirim.
+
+    Dijaga test test_ledger_tetap_setara_qty_available_sesudah_picking, yang
+    menjumlahkan SELURUH ledger dan membandingkannya dengan perubahan
+    qty_available. Catatan saat menulis test semacam ini: stok yang ditanam
+    langsung lewat factory TIDAK punya mutasi IN, jadi yang benar adalah
+    membandingkan SELISIH dari qty awal, bukan angka mutlaknya.
+
+    SELISIH ADALAH PINTU TERPISAH, BUKAN ISIAN DI SETIAP BARIS (keputusan
+    pemilik produk, dan pertanyaannya dijawab dengan alasan ini): jalur
+    normal satu ketuk "Ambil". Kalau tiap baris meminta "berapa yang
+    benar-benar diambil", operator mengetik angka yang sama dengan yang
+    tertulis ratusan kali sehari — dan ketikan yang selalu sama persis
+    berhenti dibaca, justru pada hari angkanya berbeda. Tetapi pintunya HARUS
+    ADA: tanpanya, operator yang menemukan rak kurang hanya punya dua
+    pilihan, menandai barang yang tidak ia ambil (sistem berbohong) atau
+    berhenti dan menahan pengiriman.
+
+    ALASAN SELISIH WAJIB, DITEGAKKAN CHECK CONSTRAINT — bukan hanya
+    FormRequest. Baris selisih tanpa keterangan adalah stok yang hilang tanpa
+    jejak, dan itu persis yang paling sering dicari saat opname berikutnya.
+
+    TUGAS DIKUNCI KE SATU OPERATOR (keputusan pemilik produk). Tanpa penanda
+    pemegang, dua operator di gudang yang sama berjalan mengambil daftar yang
+    sama. Super Admin boleh menolong daftar yang tersangkut — operator yang
+    memegangnya bisa saja pulang di tengah shift.
+
+    LUBANG YANG HAMPIR TERTINGGAL, dan ini sambungan ke SUSULAN TAHAP 1:
+    pembatalan pesanan boleh sampai sebelum barang berangkat, termasuk saat
+    status ready_to_ship. Padahal sesudah picking selesai, alokasinya SUDAH
+    HABIS DIPAKAI — OrderCanceller::lepasSeluruhAlokasi() tidak menemukan apa
+    pun untuk dikembalikan, dan stoknya lenyap tanpa jejak. Karena itu
+    OrderCanceller kini memanggil PickingRun::kembalikanHasilPicking() lebih
+    dulu, yang mengembalikan barang ke rak, batch, dan tanggal produksi yang
+    SAMA — ketiganya dibekukan di baris picking, jadi tidak ada yang ditebak.
+    Aturan pembatalan pilihan pemilik produk tetap utuh, tidak dipersempit.
+
+    PEMBUBARAN DAFTAR hanya selama BELUM ADA satu baris pun yang ditandai.
+    Sesudah itu barangnya sudah turun dari rak dan tergeletak di dock;
+    membubarkan daftar hanya menghapus catatannya, dan tidak ada lagi yang
+    menjelaskan kenapa ia di sana.
+
+    IZIN BARU outbound.picking.view — fitur tersendiri, bukan menumpang
+    outbound.picking.list atau .process. Rincian daftar dibaca DUA peran
+    dengan pekerjaan berbeda: Logistik memeriksa hasil susunannya, Operator
+    mengerjakannya. Menumpang salah satunya berarti salah satu peran ditolak
+    membuka halaman yang justru bagian pekerjaannya.
+
+    Stub pickingBatching()/picking()/completePicking() di OutboundController
+    DIHAPUS, bukan dibiarkan: completePicking() hanya mengembalikan "barang
+    siap loading" tanpa menyentuh satu baris stok pun, dan pesan sukses yang
+    tidak berbuat apa-apa adalah cara paling halus membuat operator percaya
+    barangnya sudah keluar dari rak.
+
+    BELUM DIKERJAKAN, sengaja, dan penting untuk tahap 4:
+    sales_order_details.qty_shipped TIDAK diisi di sini. Yang dipicking
+    tercatat di picking_list_items.qty_picked; "yang benar-benar dikirim"
+    baru pasti setelah Surat Jalan terbit, dan F-OUT-04 #3-4 memang punya
+    langkah pembandingan tersendiri sebelum itu. outstanding_qty juga tidak
+    disentuh: ia angka keputusan approval, bukan temuan di rak.
+
+    DIUJI: tests/Feature/Wms/PickingTest.php (32).
 
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
