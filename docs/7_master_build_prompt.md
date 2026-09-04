@@ -571,7 +571,7 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
     Tahap 2  Penyesuaian stok + impor Stok Awal ... SELESAI
     Tahap 3  Picking ......................... SELESAI
     Tahap 4  Surat jalan & pengiriman ....... SELESAI
-    Tahap 5  Verifikasi bukti
+    Tahap 5  Verifikasi bukti ................. SELESAI
 
   TAHAP 1 — PENERIMAAN PESANAN — SELESAI
   (Disempurnakan kemudian oleh SUSULAN TAHAP 1 di bawah blok ini —
@@ -1318,6 +1318,98 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
     pernah dipakai WhatsApp biasa (dan sesudah dipakai Cloud API tidak bisa
     kembali jadi WhatsApp biasa), serta template kategori "utility" yang
     disetujui Meta.
+
+  TAHAP 5 — VERIFIKASI BUKTI — SELESAI
+  Migration: 2026_09_18_000001_create_delivery_proofs_table,
+             2026_09_18_000002_create_so_number_changes_table
+  Berkas: App\Support\Outbound\ProofOfDelivery, App\Support\Outbound\SoNumberFixer,
+          Wms\ProofVerificationController, Sales\DeliveryProofController,
+          RejectDeliveryProofRequest, UploadDeliveryProofRequest,
+          wms/outbound/verification{,-detail}.blade.php
+
+    ALUR: supir konfirmasi sampai -> Sales memotret Surat Jalan bertanda
+    tangan dari HP -> Logistik memeriksa fotonya -> pesanan selesai.
+
+    SATU STATUS, DUA ANTREAN (keputusan pemilik produk). Saya mengusulkan
+    status baru antara "sampai tujuan" dan "menunggu verifikasi bukti",
+    supaya antrean Logistik tidak bercampur. DITOLAK dengan alasan yang
+    tepat: "sales menggunakan perangkat mobile bukan desktop" — status
+    tambahan berarti label tambahan di layar sempit.
+
+    Konsekuensinya di sisi Logistik TIDAK boleh diabaikan: pesanan yang
+    fotonya belum ada dan pesanan yang fotonya sudah menunggu berstatus
+    SAMA. Karena itu tab di halaman verifikasi dibagi menurut ADA-TIDAKNYA
+    foto yang menunggu (whereHas/whereDoesntHave proofs), BUKAN menurut
+    kolom status. Menyaring dengan status akan menumpuk ketiganya di satu
+    tab dan membuat antreannya tak terpakai.
+
+    KUOTA 3 FOTO DIHITUNG DARI YANG MASIH BERLAKU (pending + verified),
+    bukan dari seluruh baris. Kalau yang ditolak ikut dihitung, Sales yang
+    tiga kali salah potret terkunci selamanya dan pesanannya tidak akan
+    pernah bisa ditutup — persis kebalikan dari tujuan penolakan.
+
+    FOTO YANG DITOLAK TIDAK DIHAPUS, dari basis data maupun dari disk. Kalau
+    nanti pelanggan dan gudang berbeda pendapat soal apa yang diterima,
+    justru foto yang pernah ditolak itu yang menjelaskan kenapa prosesnya
+    berputar.
+
+    DISK PRIVAT ('local'), bukan 'public'. Isi fotonya tanda tangan, nama,
+    dan alamat pelanggan; disk publik berarti siapa pun yang menebak nama
+    berkasnya bisa mengunduhnya tanpa login. Pratinjaunya lewat rute yang
+    memeriksa kepemilikan/gudang.
+
+    `mimetypes` DIPAKAI BERSAMA `mimes`. `mimes` hanya melihat ekstensi —
+    berkas apa pun yang dinamai .jpg lolos. Yang diunggah di sini
+    ditampilkan kembali di layar Logistik.
+
+    PERCABANGAN TERMIN (PRD F-OUT-06 #5) DIKERJAKAN SEKARANG meski Billing
+    baru Fase 8: bayar di muka -> COMPLETED, tempo -> COMPLETED_BILLING.
+    Menyamakan keduanya membuat piutang lenyap dari layar begitu barang
+    sampai, dan itu tidak akan ketahuan sampai Fase 8 dibangun.
+
+    SLA dihitung shipped_at -> delivered_at, BUKAN sampai verifikasi. Sales
+    bisa terlambat berhari-hari ke toko, dan itu bukan pekerjaan gudang.
+
+  ============================================================
+  SALAH KETIK NOMOR SO — DUA PINTU, YANG UTAMA BUKAN MENGETIK
+  ============================================================
+  Dilaporkan pemilik produk: nomor SO diketik manusia saat menerima pesanan,
+  dan salah satu digit membuat Surat Jalan dari BC tidak pernah menemukan
+  pesanannya. Pertanyaannya: apakah disediakan fitur edit?
+
+  JAWABANNYA BUKAN SEKADAR TOMBOL EDIT. Salah ketik SELALU ketahuan dari
+  sisi Surat Jalan ("belum menemukan pesanannya"), dan di situ nomor yang
+  BENAR sudah tersedia hitam di atas putih. Menyuruh orang pindah ke halaman
+  pesanan lalu mengetik ulang berarti meminta jari yang tadi salah untuk
+  tidak salah lagi.
+
+    pair()   PINTU UTAMA (SoNumberFixer). Di SJ yatim, Logistik memilih
+             pesanannya; SISTEM yang menyalin nomor SO dari dokumen BC.
+             Ditolak bila: pelanggannya berbeda (hampir selalu berarti salah
+             pilih pesanan), nomornya sudah dipegang pesanan lain, SJ-nya
+             sudah berpasangan/berangkat, atau pesanannya sudah berangkat.
+
+    rename() PINTU KECIL. Untuk salah ketik yang ketahuan sendiri SEBELUM
+             SJ terbit — saat itu belum ada dokumen untuk disalin. DIBATASI
+             pada APPROVED/PICKING/READY_TO_SHIP: mengubah nomor setelah
+             barang jalan berarti menulis ulang sejarah dokumen yang sudah
+             dipakai menagih. Sesudah rename, SJ yatim bernomor sama
+             DISAMBUNGKAN otomatis — berkas Excel-nya sudah dibuang, dan
+             tanpa ini Logistik harus mencarinya lagi hanya untuk mengulang
+             pencocokan.
+
+  Keduanya menulis so_number_changes (nomor lama, sumber, siapa). Nomor SO
+  adalah kunci pencocokan dokumen resmi; mengubahnya tanpa jejak sama dengan
+  memindahkan barang ke pesanan lain tanpa ada yang bisa menelusurinya.
+
+  SJ YATIM SELALU TERLIHAT DI DAFTAR. Dokumen tanpa pasangan belum punya
+  gudang, sehingga WarehouseScope::apply biasa MENYEMBUNYIKAN persis baris
+  yang paling perlu ditindak — dan saringan "tanpa pasangan" mengembalikan
+  daftar kosong padahal kartunya menghitung. DeliveryController::index
+  memakai (warehouse_id = batas OR warehouse_id IS NULL).
+
+    DIUJI: tests/Feature/Wms/ProofOfDeliveryTest.php (20),
+           tests/Feature/Wms/SoNumberFixTest.php (12).
 
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
