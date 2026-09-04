@@ -1411,6 +1411,64 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
     DIUJI: tests/Feature/Wms/ProofOfDeliveryTest.php (20),
            tests/Feature/Wms/SoNumberFixTest.php (12).
 
+  ============================================================
+  SKU BERBEDA MENGHENTIKAN PENGIRIMAN — BUKAN SELISIH QTY
+  ============================================================
+  Migration: 2026_09_19_000001_add_substitution_to_delivery_notes_table
+
+  DITEMUKAN PEMILIK PRODUK SAAT UJI COBA, dan ini cacat rancangan saya.
+  Aturan "dokumen BC yang menang" saya terapkan ke qty DAN SKU. Untuk qty
+  aturan itu benar — 12 lawan 10 berarti stok gudang yang kurang. Untuk SKU
+  aturan itu RUNTUH: mesin tidak punya cara tahu sisi mana yang keliru.
+
+  Yang terjadi sebelum diperbaiki (dibuktikan dengan menjalankannya —
+  pesanan 5Kg qty 2, dipicking 5Kg qty 2, SJ menyebut SKU lain qty 2):
+
+      ID1-...2020  OUT  -2   <- dikeluarkan, padahal tak pernah diambil
+      ID1-...2820  IN   +2   <- dikembalikan, padahal sudah naik kendaraan
+      qty_shipped = 0, outstanding = 2  <- pesanan terutang selamanya
+
+  Tiga catatan salah sekaligus, DAN peringatannya salah diagnosis: ia
+  menyebut "temuan stok kurang, perlu ditelusuri saat opname" — mengirim
+  opname berikutnya mengejar selisih yang tidak pernah ada.
+
+  TIGA LAPIS PERBAIKAN:
+
+  1. DI HULU (DeliveryNoteImporter::catatanSkuAsing). Saat berkas diimpor,
+     SKU SJ dibandingkan dengan rincian pesanannya. Yang asing dilaporkan di
+     ringkasan impor — berjam-jam sebelum kendaraan menunggu di dermaga.
+     Pesanan tanpa rincian sama sekali DILEWATI: menandai seluruh SKU-nya
+     asing membuat peringatan ini selalu muncul, dan peringatan yang selalu
+     muncul berhenti dibaca.
+
+  2. DI LAYAR (Shipment::skuTidakCocok). Diagnosis "SKU berbeda"
+     MENYINGKIRKAN diagnosis selisih qty, bukan menemaninya. Kedua barisnya
+     memang muncul sebagai "kurang" dan "lebih", tetapi menamainya begitu
+     akan mengarahkan orang ke tempat yang salah.
+
+  3. DI TOMBOL (Shipment::ship). Pengiriman DITAHAN. Diperiksa sebelum satu
+     baris stok pun disentuh — blokir yang terjadi setelah stok bergerak
+     hanya memindahkan kerusakan.
+
+  PINTU KELUARNYA (keputusan pemilik produk: "blokir + pintu konfirmasi"):
+  Shipment::confirmSubstitution, rute wms.delivery.substitution. TERPISAH
+  dari formulir supir, dan MENGGANTIKANNYA di layar — centang yang menempel
+  pada formulir yang sama akan ikut tercentang bersama yang lain, dan selama
+  formulir berangkat masih terlihat orang mengisinya dulu lalu bertanya
+  belakangan.
+
+  Sesudah dikonfirmasi, mutasinya sama tetapi CATATANNYA berbeda: "barang
+  PENGGANTI", bukan "selisih stok … opname". Kalimat itu yang menentukan ke
+  mana orang mencari setahun kemudian.
+
+  BARIS YANG DIGANTIKAN DITUTUP (keputusan pemilik produk): outstanding jadi
+  0 dengan sales_order_details.substitution_note menyebut SJ-nya, sementara
+  qty_shipped tetap 0 karena barangnya memang tidak berangkat. Membiarkannya
+  outstanding berarti Sales menagih barang yang sudah diterima pelanggannya.
+
+    DIUJI: ShipmentTest (8 test tambahan),
+           DeliveryNoteImportTest (2 test tambahan).
+
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
              add_sales_return_fk_to_inventory_stocks_table (FK susulan)
