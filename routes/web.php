@@ -2,20 +2,23 @@
 
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\EpodController;
+use App\Http\Controllers\Sales\DeliveryProofController;
 use App\Http\Controllers\Sales\SalesOrderController;
 use App\Http\Controllers\Wms\AdminController;
 use App\Http\Controllers\Wms\BillingController;
 use App\Http\Controllers\Wms\CustomerController;
 use App\Http\Controllers\Wms\DashboardController;
+use App\Http\Controllers\Wms\DeliveryController;
 use App\Http\Controllers\Wms\ImportController;
 use App\Http\Controllers\Wms\InboundController;
 use App\Http\Controllers\Wms\InventoryController;
 use App\Http\Controllers\Wms\LocationController;
 use App\Http\Controllers\Wms\NotificationController;
 use App\Http\Controllers\Wms\OrderApprovalController;
-use App\Http\Controllers\Wms\OutboundController;
+use App\Http\Controllers\Wms\PickingController;
 use App\Http\Controllers\Wms\ProductController;
 use App\Http\Controllers\Wms\ProfileController;
+use App\Http\Controllers\Wms\ProofVerificationController;
 use App\Http\Controllers\Wms\ReportController;
 use App\Http\Controllers\Wms\StockTransferController;
 use App\Http\Controllers\Wms\UserController;
@@ -81,6 +84,31 @@ Route::get('/health', function () {
     ], $allHealthy ? 200 : 503);
 })->name('health');
 
+/*
+|--------------------------------------------------------------------------
+| Profil sendiri — MILIK SEMUA ROLE, lintas portal
+|--------------------------------------------------------------------------
+|
+| Sengaja DI LUAR prefix /wms. Sebelumnya profil hanya ada di Portal WMS,
+| sehingga Tim Sales — satu-satunya role yang dipagari keluar dari portal itu
+| oleh middleware `portal:wms` — tidak punya cara mengganti kata sandinya
+| sendiri maupun melihat perangkat mana saja yang sedang memakai akunnya.
+| Justru merekalah yang paling sering berpindah perangkat.
+|
+| Mengganti sandi dan mengusir perangkat asing bukan fitur gudang; itu milik
+| akun, dan setiap akun berhak atasnya. Karena itu di sini hanya ada `auth`
+| dan `session.track`, tanpa `portal:` maupun `can:`.
+*/
+Route::middleware(['auth', 'session.track'])->group(function () {
+    Route::get('/profile', [ProfileController::class, 'index'])->name('profile');
+    Route::post('/profile/password', [ProfileController::class, 'updatePassword'])
+        ->name('profile.password');
+    Route::post('/profile/sessions/revoke-others', [ProfileController::class, 'revokeOtherSessions'])
+        ->name('profile.sessions.revoke-others');
+    Route::delete('/profile/sessions/{session}', [ProfileController::class, 'revokeSession'])
+        ->name('profile.sessions.revoke');
+});
+
 // SALES PORTAL ROUTES
 Route::prefix('sales')->middleware(['auth', 'session.track', 'portal:sales'])->group(function () {
     Route::get('/dashboard', function () {
@@ -113,6 +141,16 @@ Route::prefix('sales')->middleware(['auth', 'session.track', 'portal:sales'])->g
     */
     Route::get('/orders/{order}', [SalesOrderController::class, 'show']);
     Route::get('/orders/{order}/document', [SalesOrderController::class, 'document']);
+
+    /*
+    | Bukti Surat Jalan bertanda tangan (F-OUT-05). Dikerjakan Sales dari HP
+    | di depan toko, jadi formulirnya menempel di halaman detail pesanan —
+    | tidak ada halaman unggah tersendiri.
+    */
+    Route::post('/orders/{order}/proofs', [DeliveryProofController::class, 'store'])
+        ->name('sales.proofs.store');
+    Route::get('/proofs/{proof}', [DeliveryProofController::class, 'preview'])
+        ->name('sales.proofs.preview');
     Route::get('/orders/{order}/edit', [SalesOrderController::class, 'edit']);
     Route::put('/orders/{order}', [SalesOrderController::class, 'update']);
     Route::delete('/orders/{order}', [SalesOrderController::class, 'destroy']);
@@ -149,8 +187,10 @@ Route::prefix('wms')->middleware(['auth', 'session.track', 'portal:wms'])->group
 
     // Notifikasi & profil: milik pribadi tiap user, tidak dibatasi role.
     Route::get('/notifications', [NotificationController::class, 'index']);
-    Route::get('/profile', [ProfileController::class, 'index']);
-    Route::post('/profile/password', [ProfileController::class, 'updatePassword']);
+    // Profil PINDAH ke /profile supaya Tim Sales ikut kebagian (lihat blok
+    // di atas grup ini). Alamat lama dipertahankan sebagai pengalihan: ia
+    // sudah tersebar di bookmark dan tautan lama.
+    Route::get('/profile', fn () => redirect()->route('profile'));
 
     Route::prefix('inbound')->group(function () {
         Route::middleware('can:'.Permission::INBOUND_HISTORY)->group(function () {
@@ -353,24 +393,109 @@ Route::prefix('wms')->middleware(['auth', 'session.track', 'portal:wms'])->group
             // tidak menyetujui. Nomor SO-nya kembali bisa dipakai.
             Route::post('/approval/{order}/cancel', [OrderApprovalController::class, 'cancel'])
                 ->name('wms.approval.cancel');
+
+            // Koreksi nomor SO yang salah ketik (Fase 6 tahap 5). Pintu KECIL:
+            // hanya berlaku selama pesanan belum berangkat. Sesudah itu
+            // koreksinya lewat wms.delivery.pair, supaya nomornya disalin dari
+            // dokumen BC dan bukan diketik ulang.
+            Route::post('/approval/{order}/so-number', [OrderApprovalController::class, 'renameSoNumber'])
+                ->name('wms.approval.so-number');
         });
 
-        Route::get('/picking/batching', [OutboundController::class, 'pickingBatching'])
-            ->middleware('can:'.Permission::OUTBOUND_PICKING_LIST);
+        // PICKING (Fase 6 tahap 3). Dua kelompok untuk dua orang: Logistik
+        // MENYUSUN daftar, Operator MENGERJAKANNYA. URUTAN PENTING:
+        // '/picking/batching' dan '/picking/queue' harus didaftarkan SEBELUM
+        // '/picking/{list}', kalau tidak keduanya tertangkap sebagai id.
+        Route::middleware('can:'.Permission::OUTBOUND_PICKING_LIST)->group(function () {
+            Route::get('/picking/batching', [PickingController::class, 'batching'])
+                ->name('wms.picking.batching');
+            Route::post('/picking/list', [PickingController::class, 'store'])
+                ->name('wms.picking.store');
+            Route::post('/picking/list/{list}/cancel', [PickingController::class, 'cancel'])
+                ->name('wms.picking.cancel');
+        });
 
         Route::middleware('can:'.Permission::OUTBOUND_PICKING_PROCESS)->group(function () {
-            Route::get('/picking', [OutboundController::class, 'picking']);
-            Route::post('/complete-picking/{id}', [OutboundController::class, 'completePicking']);
+            Route::get('/picking', [PickingController::class, 'queue'])
+                ->name('wms.picking.queue');
+            Route::post('/picking/list/{list}/claim', [PickingController::class, 'claim'])
+                ->name('wms.picking.claim');
+            Route::post('/picking/list/{list}/item/{item}/pick', [PickingController::class, 'pick'])
+                ->name('wms.picking.item.pick');
+            Route::post('/picking/list/{list}/item/{item}/short', [PickingController::class, 'short'])
+                ->name('wms.picking.item.short');
+            Route::post('/picking/list/{list}/item/{item}/reset', [PickingController::class, 'reset'])
+                ->name('wms.picking.item.reset');
+            Route::post('/picking/list/{list}/complete', [PickingController::class, 'complete'])
+                ->name('wms.picking.complete');
         });
 
+        // Rincian daftar dibaca KEDUA peran: Logistik memeriksa hasil
+        // susunannya, Operator mengerjakannya. Gate-nya "salah satu boleh",
+        // bukan salah satunya saja — karena itu fiturnya sendiri, bukan
+        // menumpang salah satu dari keduanya.
+        Route::get('/picking/list/{list}', [PickingController::class, 'show'])
+            ->middleware('can:'.Permission::OUTBOUND_PICKING_VIEW)
+            ->name('wms.picking.show');
+
+        // SURAT JALAN (Fase 6 tahap 4). TIDAK ada rute "cetak": dokumen
+        // resminya terbit di sistem BC, dan yang dikerjakan di sini adalah
+        // menyalin lalu mencocokkannya.
         Route::middleware('can:'.Permission::OUTBOUND_DELIVERY)->group(function () {
-            Route::get('/delivery', [OutboundController::class, 'delivery']);
-            Route::post('/generate-sj/{id}', [OutboundController::class, 'generateSuratJalan']);
+            Route::get('/delivery', [DeliveryController::class, 'index'])
+                ->name('wms.delivery.index');
+
+            Route::post('/delivery/import/preview', [ImportController::class, 'preview'])
+                ->defaults('type', 'delivery-notes')
+                ->name('wms.delivery.import.preview');
+            Route::post('/delivery/import', [ImportController::class, 'store'])
+                ->defaults('type', 'delivery-notes')
+                ->name('wms.delivery.import');
+            Route::post('/delivery/import/cancel', [ImportController::class, 'cancel'])
+                ->defaults('type', 'delivery-notes')
+                ->name('wms.delivery.import.cancel');
+
+            // URUTAN PENTING: '/delivery/import*' di atas harus didaftarkan
+            // SEBELUM '/delivery/{note}', kalau tidak "import" tertangkap
+            // sebagai id dokumen.
+            Route::get('/delivery/{note}', [DeliveryController::class, 'show'])
+                ->name('wms.delivery.show');
+            Route::post('/delivery/{note}/ship', [DeliveryController::class, 'ship'])
+                ->name('wms.delivery.ship');
+            Route::post('/delivery/{note}/resend', [DeliveryController::class, 'resend'])
+                ->name('wms.delivery.resend');
+
+            // Memasangkan SJ yatim ke pesanannya sekaligus membetulkan nomor
+            // SO yang salah ketik (Fase 6 tahap 5).
+            Route::post('/delivery/{note}/pair', [DeliveryController::class, 'pair'])
+                ->name('wms.delivery.pair');
+
+            // SKU di Surat Jalan berbeda dari yang dipicking. Pintu TERPISAH
+            // dari tombol berangkat: centang yang menempel pada formulir yang
+            // sama akan ikut tercentang bersama yang lain.
+            Route::post('/delivery/{note}/substitution', [DeliveryController::class, 'confirmSubstitution'])
+                ->name('wms.delivery.substitution');
         });
 
+        // VERIFIKASI BUKTI (Fase 6 tahap 5, PRD F-OUT-06).
         Route::middleware('can:'.Permission::OUTBOUND_VERIFICATION)->group(function () {
-            Route::get('/verification', [OutboundController::class, 'verification']);
-            Route::post('/verify-bukti/{id}', [OutboundController::class, 'verifyBukti']);
+            Route::get('/verification', [ProofVerificationController::class, 'index'])
+                ->name('wms.verification.index');
+
+            // URUTAN PENTING: '/verification/proof/*' harus lebih dulu
+            // daripada '/verification/{order}', kalau tidak "proof" tertangkap
+            // sebagai id pesanan.
+            Route::get('/verification/proof/{proof}', [ProofVerificationController::class, 'preview'])
+                ->name('wms.verification.preview');
+            Route::get('/verification/proof/{proof}/download', [ProofVerificationController::class, 'download'])
+                ->name('wms.verification.download');
+
+            Route::get('/verification/{order}', [ProofVerificationController::class, 'show'])
+                ->name('wms.verification.show');
+            Route::post('/verification/{order}/complete', [ProofVerificationController::class, 'complete'])
+                ->name('wms.verification.complete');
+            Route::post('/verification/{order}/reject', [ProofVerificationController::class, 'reject'])
+                ->name('wms.verification.reject');
         });
     });
 
@@ -381,6 +506,20 @@ Route::prefix('wms')->middleware(['auth', 'session.track', 'portal:wms'])->group
     });
 });
 
-// E-POD
-Route::get('/epod/{po_number}', [EpodController::class, 'show']);
-Route::post('/epod/{po_number}/confirm', [EpodController::class, 'confirm']);
+/*
+| E-POD — konfirmasi penerimaan oleh supir (F-OUT-04 #10).
+|
+| PUBLIK, DI LUAR SELURUH MIDDLEWARE. Supir tidak punya akun dan tidak akan
+| pernah punya: ia berganti setiap hari dan sebagian besar dari perusahaan
+| jasa lain. Yang menjadi kunci adalah TOKEN di dalam alamatnya — acak, 48
+| karakter, disimpan sebagai kolom. Parameternya dulu bernama {po_number},
+| yang berarti siapa pun yang tahu (atau menebak) nomor PO bisa menyatakan
+| kiriman orang lain sudah sampai.
+|
+| Dibatasi kecepatan aksesnya: halaman ini terbuka ke internet, dan token
+| tidak boleh bisa dicari dengan mencoba satu per satu.
+*/
+Route::middleware('throttle:30,1')->group(function () {
+    Route::get('/epod/{token}', [EpodController::class, 'show'])->name('epod.show');
+    Route::post('/epod/{token}/confirm', [EpodController::class, 'confirm'])->name('epod.confirm');
+});

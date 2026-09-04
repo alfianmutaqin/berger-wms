@@ -74,9 +74,9 @@ class SalesOrder extends Model
         'submitted_at', 'approved_at', 'approved_by', 'approval_note',
         'rejected_at', 'rejected_by', 'rejection_reason',
         'cancelled_at', 'cancelled_by', 'cancellation_source', 'cancellation_reason',
-        'so_merged_into_id',
+        'so_merged_into_id', 'picking_list_id',
         'picking_completed_at', 'shipped_at', 'delivered_at',
-        'completed_at', 'sla_hours', 'notes',
+        'completed_at', 'completed_by', 'sla_hours', 'notes',
     ];
 
     protected function casts(): array
@@ -158,6 +158,48 @@ class SalesOrder extends Model
     public function mergedOrders(): HasMany
     {
         return $this->hasMany(self::class, 'so_merged_into_id');
+    }
+
+    /**
+     * Daftar picking yang sedang memuat pesanan ini.
+     *
+     * Terisi sejak Logistik menyusun daftar sampai daftarnya selesai atau
+     * dibubarkan. NULL berarti pesanan ini masih bebas dimasukkan ke daftar
+     * mana pun — itulah pemeriksaan yang mencegah satu pesanan diambil dua
+     * kali oleh dua operator.
+     */
+    public function pickingList(): BelongsTo
+    {
+        return $this->belongsTo(PickingList::class);
+    }
+
+    /** Baris pengambilan milik pesanan ini di daftar picking. */
+    public function pickingItems(): HasMany
+    {
+        return $this->hasMany(PickingListItem::class);
+    }
+
+    /** Surat Jalan BC yang terpasang ke pesanan ini (bisa lebih dari satu). */
+    public function deliveryNotes(): HasMany
+    {
+        return $this->hasMany(DeliveryNote::class);
+    }
+
+    /** Foto Surat Jalan bertanda tangan, termasuk yang pernah ditolak. */
+    public function proofs(): HasMany
+    {
+        return $this->hasMany(DeliveryProof::class);
+    }
+
+    /** Riwayat koreksi nomor SO. Kosong berarti nomornya belum pernah diubah. */
+    public function soNumberChanges(): HasMany
+    {
+        return $this->hasMany(SoNumberChange::class);
+    }
+
+    public function completedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'completed_by');
     }
 
     /* ------------------------------------------------------------ Scope */
