@@ -1625,6 +1625,58 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
     angka 53 yang persis dilaporkan, yang satu mengembalikan 53 unit ke rak
     yang seharusnya hanya 3.
 
+  SUSULAN: PESANAN DITOLAK BISA DIPERBAIKI & DIAJUKAN ULANG
+  (permintaan pemilik produk, bukan PRD)
+  Migration: create_sales_order_rejections_table (termasuk backfill)
+  Berkas: App\Models\SalesOrderRejection,
+          SalesOrder::{rejections,bolehDiperbaiki,sedangDitolak},
+          SalesOrderController::{edit,update,tandaiTerkirim},
+          OrderApprovalController::{reject,index,show,history}
+
+    KEADAAN SEBELUMNYA: penolakan adalah jalan buntu. Pesanan 50 baris yang
+    ditolak karena satu item keliru memaksa Sales mengetik ulang seluruhnya
+    sebagai pesanan baru — dan pesanan barunya tidak punya hubungan apa pun
+    dengan yang ditolak, sehingga Logistik tidak pernah tahu ia sedang
+    menilai pengajuan kedua atas hal yang sama.
+
+    DUA HAL YANG HARUS BERJALAN BERSAMA, dan itulah sebabnya tabelnya
+    dipisah — polanya sama persis dengan sales_order_cancellations:
+      1. Begitu diajukan ulang, penanda penolakan di `sales_orders`
+         DIBERSIHKAN. Pesanan itu sedang menunggu dinilai, bukan sedang
+         ditolak, dan keadaan sekarangnya harus jujur.
+      2. Fakta bahwa ia pernah ditolak TIDAK ikut hilang. Permintaan pemilik
+         produk: catatan itu melekat "sampai akhir", termasuk sesudah
+         pesanannya diterima dan selesai.
+    Keduanya mustahil hidup bersama di satu kolom.
+
+    bolehDiperbaiki() SENGAJA TIDAK DISATUKAN dengan isEditable(). Yang boleh
+    DIHAPUS tetap hanya draft: pesanan yang pernah ditolak membawa riwayat
+    yang harus bertahan, dan menghapusnya menghapus jejak itu juga.
+
+    NOMOR PENGAJUAN DISIMPAN, bukan dihitung dari jumlah baris saat
+    ditampilkan — nomor yang bergeser sendiri membuat "ditolak pada pengajuan
+    ke-2" berubah arti belakangan.
+
+    DIBAWA KE TEMPAT KEPUTUSAN DIAMBIL, bukan sekadar disimpan: alasan
+    penolakan lama muncul di formulir perbaikan milik Sales DAN di layar
+    penilaian milik Logistik, dan antrean penerimaan menandai "Pengajuan
+    ke-N" sejak sebelum layarnya dibuka. Riwayat yang hanya tersimpan di
+    tempat yang tidak dilihat saat keputusan diambil sama saja dengan tidak
+    ada.
+
+    DIUJI: tests/Feature/Sales/OrderResubmissionTest.php (12 test).
+
+  KOREKSI ISTILAH: "BUBARKAN" -> "BATALKAN" pada daftar picking
+  (permintaan pemilik produk)
+
+    Seluruh "bubarkan/dibubarkan/pembubaran" pada alur picking diganti
+    "batalkan/dibatalkan/pembatalan", termasuk nama metode
+    (PickingList::bolehDibatalkan) supaya kode dan layar tidak berbeda kata
+    untuk hal yang sama. Tombolnya ditulis "Batalkan DAFTAR": di sistem ini
+    "batalkan" juga dipakai untuk membatalkan PESANAN, dan yang dibatalkan di
+    sini hanya susunan daftar pickingnya — pesanannya kembali ke antrean,
+    tidak ikut batal.
+
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
              add_sales_return_fk_to_inventory_stocks_table (FK susulan)
