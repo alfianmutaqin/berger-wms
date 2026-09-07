@@ -1524,6 +1524,69 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
     DIUJI: ShipmentTest (8 test tambahan),
            DeliveryNoteImportTest (2 test tambahan).
 
+  SUSULAN: RIWAYAT OUTSTANDING & PEMBATALAN YANG BERTAHAN
+  (permintaan pemilik produk, bukan PRD)
+  Migration: create_sales_order_outstandings_table (termasuk backfill)
+  Berkas: App\Models\SalesOrderOutstanding,
+          App\Support\Outbound\OutstandingRecorder,
+          App\Http\Controllers\Wms\OutstandingController,
+          OrderApprovalController::{tulisRincian,history},
+          Shipment::catatQtyTerkirim
+
+    SATU AKAR, DUA KELUHAN. Keduanya lahir dari kebiasaan menyimpan riwayat
+    di kolom yang menyimpan keadaan sekarang, lalu menimpanya:
+
+      1. sales_order_details.outstanding_qty ditimpa setiap Surat Jalan
+         berangkat dan dinolkan saat pesanan dibatalkan, sehingga "PO itu
+         dulu kurang berapa" tidak bisa dijawab lagi begitu kekurangannya
+         tertutup.
+      2. Kolom pembatalan di sales_orders SENGAJA dibersihkan saat pesanan
+         diterima ulang — supaya keadaan sekarangnya jujur — dan akibatnya
+         PO yang sudah tiga kali batal terlihat sama bersihnya dengan yang
+         mulus sejak awal.
+
+    Keluhan 2 ternyata BUKAN kehilangan data: sales_order_cancellations sudah
+    menyimpan seluruhnya sejak SUSULAN TAHAP 1. Yang hilang hanya jalannya ke
+    layar — history() menyaring lewat cancelled_at, kolom yang justru baru
+    saja dibersihkan. Perbaikannya menyaring lewat tabel riwayatnya
+    (orWhereHas('cancellations')), bukan menambah kolom baru.
+
+    PEMBAGIAN TUGAS YANG DIJAGA KETAT:
+      Berapa kurangnya SEKARANG   -> sales_order_details.outstanding_qty
+      Pernah kurang berapa, kapan -> sales_order_outstandings (append-only)
+    Halaman Outstanding membaca KEDUANYA dan tidak pernah bisa berselisih,
+    karena masing-masing angka hanya punya satu sumber. Kolom "sisa sekarang"
+    dibaca hidup dari baris pesanannya; angka di baris riwayat adalah
+    cuplikan masa lalu dan memang tidak ikut berubah.
+
+    DICATAT SAAT BERUBAH, BUKAN SETIAP KALI DILEWATI. Pesanan 10 disetujui 5
+    menghasilkan satu baris saat diterima; ketika 5 itu berangkat, Shipment
+    menghitung ulang dan mendapat angka yang sama. Tanpa penjagaan ini satu
+    kekurangan tampil dua kali dan pembacanya menyimpulkan pesanan itu
+    bermasalah berulang. Aturannya ada di OutstandingRecorder saja, supaya
+    kedua pemanggilnya tidak diam-diam berbeda.
+
+    YANG SENGAJA TIDAK DICATAT:
+      - Menyetujui MELEBIHI stok. Itu janji yang belum punya cadangan
+        ("menunggu stok"), bukan kewajiban yang tidak dipenuhi — barangnya
+        ada di gudang, hanya belum di-putaway.
+      - Pembatalan. Pesanannya kembali ke antrean dan akan dinilai ulang dari
+        awal; mencatat seluruh qty-nya sebagai kekurangan berarti menghitung
+        dua kali begitu penerimaan berikutnya jalan. Jejaknya sudah lengkap
+        di sales_order_cancellations.
+
+    BACKFILL DI MIGRASINYA, bukan perintah terpisah. Halaman yang lahir
+    kosong padahal pesanan kurang sudah berjalan lama akan dibaca sebagai
+    "tidak ada yang kurang" — salah paham yang paling mahal. Waktunya diambil
+    dari approved_at supaya baris lama tidak menumpuk di puncak riwayat.
+
+    IZIN: menumpang OUTBOUND_APPROVAL, bukan izin baru. Kekurangan LAHIR dari
+    keputusan penerimaan, jadi yang berwenang mengambil keputusan itu memang
+    harus bisa melihat akibatnya — berbeda dari karantina, yang perannya
+    memang berbeda dari koreksi stok sehingga di sana izinnya dipisah.
+
+    DIUJI: tests/Feature/Wms/OutstandingHistoryTest.php (16 test).
+
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
              add_sales_return_fk_to_inventory_stocks_table (FK susulan)
