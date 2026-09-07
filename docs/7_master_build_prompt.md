@@ -581,17 +581,31 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     DIUJI: tests/Feature/Wms/StockTakeTest.php (25 test),
            tests/Feature/Wms/WarehouseMapContentsTest.php (12 test).
 
-  SUSULAN: KARANTINA & FORMULA LAMA (permintaan pemilik produk, bukan PRD)
+  SUSULAN: KARANTINA & MASALAH KUALITAS (permintaan pemilik produk, bukan PRD)
   ============================================================
   Migration: 2026_09_20_000001_add_quarantine_and_old_formula_to_inventory_stocks_table
+             2026_09_25_000001_rename_is_old_formula_to_has_quality_issue
   Berkas: App\Support\Inventory\StockQuarantine, command stock:sweep-quarantine,
-          InventoryController::quarantine/releaseQuarantine/toggleOldFormula.
+          InventoryController::quarantine/releaseQuarantine/toggleQualityIssue.
+
+  PENANDANYA DIGANTI NAMA, BUKAN DIGANTI SIFAT. Semula "Formula Lama"
+  (is_old_formula); pemilik produk memintanya jadi "Masalah Kualitas"
+  (has_quality_issue). Kolomnya DI-RENAME, bukan ditambah baru — batch yang
+  sudah ditandai tidak boleh kehilangan tandanya, dan dua kolom untuk satu
+  penanda yang sama adalah dua sumber kebenaran.
 
   DUA PENANDA, SIFAT BERBEDA — JANGAN DISATUKAN:
 
-    FORMULA LAMA (is_old_formula, boolean) — MURNI INFORMASI. Stok tetap
-    'active', tetap ikut FIFO. Tidak ada satu baris kode alokasi pun yang
-    perlu tahu kolom ini ada.
+    MASALAH KUALITAS (has_quality_issue, boolean) — MURNI INFORMASI. Stok
+    tetap 'active', tetap ikut FIFO. Tidak ada satu baris kode alokasi pun
+    yang perlu tahu kolom ini ada.
+
+    NAMANYA TERDENGAR SEPERTI PENAHANAN, DAN DI SITU BAHAYANYA. Yang
+    menahan tetap KARANTINA (sementara) dan DDP (permanen). Kalau penanda
+    ini ikut memblokir FIFO, ada dua jalan berbeda untuk melakukan hal yang
+    sama — dan jalan yang ini tidak punya masa berlaku, alasan tertulis,
+    maupun jalur pelepasan. Karena itu pesan sukses togglenya SENGAJA
+    menyebut ulang "penanda ini tidak menahan stok".
 
     KARANTINA (STATUS_QUARANTINE, status ketiga selain active/ddp/expired)
     — penahanan SEMENTARA berbasis HARI, dipasang Logistik setelah QC
@@ -607,7 +621,7 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
   — persis "masih boleh dijual tapi harus nunggu" tanpa risiko lupa
   mengecualikannya di suatu tempat.
 
-  SATU BATCH, SATU KEPUTUSAN. Karantina dan Formula Lama diterapkan ke
+  SATU BATCH, SATU KEPUTUSAN. Karantina dan Masalah Kualitas diterapkan ke
   SELURUH baris product_id+warehouse_id+batch_no (StockQuarantine::
   kunciSebatch), bukan satu baris rak saja — keduanya melekat pada apa
   yang terjadi saat produksi/pengujian, bukan pada rak tempat sekarang
