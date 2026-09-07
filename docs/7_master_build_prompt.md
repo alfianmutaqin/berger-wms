@@ -492,6 +492,80 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
       memakai data karangan di session.
 
   ============================================================
+  SUSULAN: DENAH BERISI & STOK OPNAME (permintaan pemilik produk, bukan PRD)
+  Migration: create_stock_takes_table
+  Berkas: App\Models\{StockTake,StockTakeItem},
+          App\Support\Inventory\StockTakeRun,
+          App\Http\Controllers\Wms\StockTakeController,
+          LocationController::{map,contents}
+
+    DENAH. Halaman denah sejak Fase 4 hanya kerangka: kotak beralamat tanpa
+    keterangan isi, dengan catatan bahwa isinya menyusul setelah Inventory
+    dibangun. Sekarang tiap kotak menuliskan jumlah unit dan mengklik kotaknya
+    membuka rincian batch. Angkanya qty_available + qty_allocated: yang dilihat
+    orang saat berdiri di depan rak adalah barang FISIK, dan yang sudah
+    dicadangkan tetap berdiri di sana. Rinciannya lewat endpoint terpisah —
+    ~2.264 kotak per gudang, dan rincian batch di tiap kotak membengkakkan
+    halaman demi data yang hampir tidak pernah dibuka.
+
+    ISTILAH: "bin" dihapus dari layar. Satu kotak beralamat (B-01-08) disebut
+    RAK — itulah yang ditulis operator dan yang tertera di layar picking —
+    dan kumpulannya (B-01) disebut DERET. Tanpa kata kedua, "Total Rak 2.264"
+    dan "Jumlah Rak 29" berdiri bersebelahan tanpa ada yang tahu bedanya.
+
+    STOK OPNAME. Sebulan atau tiga bulan sekali, mencocokkan angka sistem
+    dengan barang di rak. Tiga keputusan yang membentuk seluruh rancangannya:
+
+    1. ANGKA SISTEM DIBEKUKAN SAAT SESI DIBUKA. Menghitung satu gudang makan
+       waktu berjam-jam sampai berhari-hari, dan selama itu barang tetap
+       keluar-masuk. Kalau pembandingnya angka "sekarang", tiap pengiriman yang
+       berangkat di tengah penghitungan terbaca sebagai selisih opname —
+       padahal ia pergerakan yang benar dan sudah tercatat rapi di ledger.
+
+    2. KOREKSINYA DITERAPKAN SEBAGAI SELISIH, BUKAN PENIMPAAN. Yang ditambahkan
+       ke stok saat pengesahan adalah (fisik - beku), bukan angka fisiknya
+       langsung. Barang yang sah berangkat SETELAH raknya dihitung karena itu
+       tidak dihidupkan kembali oleh laporan opname. Inilah yang membuat opname
+       tidak perlu membekukan operasi gudang — dan bagian yang paling mudah
+       dirusak oleh "sederhanakan saja jadi set qty". DIJAGA TEST khusus.
+
+    3. STOK BARU BERUBAH SAAT LAPORAN DISAHKAN (permintaan pemilik produk:
+       "stok terbaru aktif setelah laporan dicetak"). Selama sesi berjalan
+       tidak satu pun angka stok tersentuh; hasil hitungan menumpuk sebagai
+       catatan. Pengesahan membawa langsung ke halaman laporan yang membuka
+       dialog cetak, sehingga terbitnya laporan dan berlakunya stok baru adalah
+       satu peristiwa.
+
+    RAK YANG TIDAK SEMPAT DIHITUNG TIDAK DISENTUH, dan jumlahnya ditulis di
+    laporan. Menganggapnya kosong berarti satu rak yang terlewat langsung
+    menghapus stoknya dari sistem — kerusakan yang jauh lebih mahal daripada
+    laporan yang mengaku cakupannya belum penuh.
+
+    HITUNGAN DI BAWAH JUMLAH TERALOKASI DITOLAK saat dimasukkan. Kekurangan
+    sebanyak itu menyentuh barang yang sudah dijanjikan ke pelanggan, dan itu
+    keputusan orang — batalkan alokasinya atau perbaiki pesanannya — bukan
+    sesuatu yang boleh diselesaikan diam-diam oleh pengesahan laporan.
+
+    DUA IZIN, sengaja dipisah: stocktake.count (sampai Operator Gudang, karena
+    merekalah yang berdiri di depan rak; tidak mengubah stok sama sekali) dan
+    stocktake.manage (Manager/Super Admin — membuka sesi dan mengesahkan).
+    Orang yang salah menghitung tidak boleh sekaligus mengesahkan koreksi atas
+    kesalahannya sendiri.
+
+    MENU SENDIRI, BUKAN MENUMPANG DENAH. Denah menjawab "di mana barangnya" dan
+    boleh dibuka kapan saja; opname adalah PROSES bertahap dengan awal, akhir,
+    dan penanggung jawab. Yang dipinjam dari denah adalah SUSUNANNYA: layar
+    penghitungan dikelompokkan deret -> rak, sehingga yang menghitung membaca
+    layar dengan urutan yang sama seperti saat ia menyusuri gudang.
+
+    BELUM TERMASUK: barang yang ditemukan di rak tetapi TIDAK punya baris stok
+    sama sekali di sistem. Membuat baris baru menuntut tanggal produksi dan
+    kedaluwarsa yang benar supaya FIFO tidak rusak, dan itu keputusan yang
+    lebih baik lewat jalur penambahan stok ke rak yang sudah ada.
+
+    DIUJI: tests/Feature/Wms/StockTakeTest.php (22 test),
+           tests/Feature/Wms/WarehouseMapContentsTest.php (12 test).
+
   SUSULAN: KARANTINA & FORMULA LAMA (permintaan pemilik produk, bukan PRD)
   ============================================================
   Migration: 2026_09_20_000001_add_quarantine_and_old_formula_to_inventory_stocks_table
