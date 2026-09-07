@@ -491,6 +491,61 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     - app/Data/MockInventory.php DIHAPUS — InventoryController tidak lagi
       memakai data karangan di session.
 
+  ============================================================
+  SUSULAN: KARANTINA & FORMULA LAMA (permintaan pemilik produk, bukan PRD)
+  ============================================================
+  Migration: 2026_09_20_000001_add_quarantine_and_old_formula_to_inventory_stocks_table
+  Berkas: App\Support\Inventory\StockQuarantine, command stock:sweep-quarantine,
+          InventoryController::quarantine/releaseQuarantine/toggleOldFormula.
+
+  DUA PENANDA, SIFAT BERBEDA — JANGAN DISATUKAN:
+
+    FORMULA LAMA (is_old_formula, boolean) — MURNI INFORMASI. Stok tetap
+    'active', tetap ikut FIFO. Tidak ada satu baris kode alokasi pun yang
+    perlu tahu kolom ini ada.
+
+    KARANTINA (STATUS_QUARANTINE, status ketiga selain active/ddp/expired)
+    — penahanan SEMENTARA berbasis HARI, dipasang Logistik setelah QC
+    selesai memeriksa (biasanya 1-2 hari setelah produksi naik rak).
+    BUKAN DDP: DDP permanen sampai dikeluarkan manual Manager/Super Admin;
+    karantina LEPAS SENDIRI begitu quarantine_until lewat, lewat sweep
+    harian 00:10 (diselisihkan 5 menit dari sweep kedaluwarsa 00:05).
+
+  KENAPA TIDAK ADA SATU PUN QUERY ALOKASI YANG DIUBAH: FifoAllocator dan
+  Shipment::keluarkanKekurangan() menyaring `status = 'active'` SECARA
+  LANGSUNG (bukan lewat scopeSellable()). Menambah status ketiga otomatis
+  membuatnya terlewati FIFO tanpa menyentuh satu pun query yang sudah ada
+  — persis "masih boleh dijual tapi harus nunggu" tanpa risiko lupa
+  mengecualikannya di suatu tempat.
+
+  SATU BATCH, SATU KEPUTUSAN. Karantina dan Formula Lama diterapkan ke
+  SELURUH baris product_id+warehouse_id+batch_no (StockQuarantine::
+  kunciSebatch), bukan satu baris rak saja — keduanya melekat pada apa
+  yang terjadi saat produksi/pengujian, bukan pada rak tempat sekarang
+  barangnya duduk.
+
+  BLOK KETIGA WAJIB DITAMBAHKAN DI ACCORDION. Sebelum blok Karantina ada,
+  batch berstatus 'quarantine' tidak cocok dengan bucket Good Stock
+  (status != active) MAUPUN bucket DDP (bukan ddp/expired) — LENYAP dari
+  accordion sama sekali padahal barangnya masih di rak. Kalau kelak ada
+  status keempat, cek ulang SELURUH tempat yang membelah stok jadi
+  good/ddp secara eksplisit (termasuk test helper batchDiLayar() di
+  InventoryTest — sempat ketinggalan saat susulan ini dibuat).
+
+  PENAMAAN SCOPE BENTROK: scopeQuarantined() yang SUDAH ADA sejak Fase 4
+  ternyata berarti "DDP maupun kedaluwarsa" (whereIn status DDP/EXPIRED),
+  BUKAN status 'quarantine' yang sesungguhnya. Diganti nama jadi
+  scopeDdpOrExpired() supaya tidak bentrok istilah dengan scopeInQuarantine()
+  yang baru.
+
+  IZIN TERPISAH DARI INVENTORY_ADJUST (permintaan pemilik produk):
+  INVENTORY_QUARANTINE = [Super Admin, Manager, Logistik]. Koreksi qty dan
+  DDP permanen tetap wewenang Manager/Super Admin saja, tetapi karantina
+  adalah pekerjaan sehari-hari Logistik begitu QC selesai memeriksa — bukan
+  keputusan yang perlu naik ke Manager.
+
+    DIUJI: tests/Feature/Wms/StockQuarantineTest.php (22 test).
+
 FASE 5 — Sales Order Portal — SELESAI
   Migration: document_sequences, sales_orders, sales_order_details,
              sales_order_allocations
