@@ -1613,6 +1613,67 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
     DIUJI: ShipmentTest (8 test tambahan),
            DeliveryNoteImportTest (2 test tambahan).
 
+  SUSULAN: BOOKING PRODUK (keputusan pemilik produk, bukan PRD)
+  Migration: create_stock_bookings_table
+  Berkas: App\Models\{StockBooking,StockBookingAllocation},
+          App\Support\Outbound\ProductBooking,
+          App\Http\Controllers\Wms\BookingController,
+          PendingAllocationFiller (antrean janji),
+          InboundController::verifyStore, OrderApprovalController::accept
+
+    KEJADIANNYA: customer minta jatah dari batch yang BELUM diproduksi —
+    "nanti kalau jadi, 5 untuk saya". Barangnya belum ada, jadi tidak ada apa
+    pun di sistem yang memegang janji itu. Begitu produksi selesai dan naik
+    rak, barang mendarat bebas dan pesanan lain yang kebetulan diproses lebih
+    dulu menyambarnya lewat FIFO. Pengiriman ke customer itu dua sampai tiga
+    minggu sekali, jadi kehilangannya baru ketahuan lama sesudahnya.
+
+    CACAT YANG DITEMUKAN SAAT MENELUSURI: PendingAllocationFiller sudah ada
+    sejak Fase 6 dan dipanggil dari tambah stok manual, impor stok awal, dan
+    transfer antar gudang — tetapi TIDAK dari verifikasi inbound. Padahal
+    itulah jalur produksi, jalan masuk stok yang paling sering dipakai. Satu-
+    satunya jalur yang penting justru satu-satunya yang terlewat. Sekarang
+    disambungkan, dan hasilnya dilaporkan di layar verifikasi.
+
+    MENAHANNYA MEMAKAI JALAN YANG SUDAH ADA, bukan kolom stok baru. Booking
+    memindahkan qty dari `qty_available` ke `qty_allocated`, persis seperti
+    alokasi pesanan. FifoAllocator hanya melihat `qty_available`, begitu pula
+    availableFor() yang memberi angka "stok yang bisa dijanjikan". Jadi begitu
+    5 dari 10 unit dibooking, yang bisa dipesan tinggal 5 DENGAN SENDIRINYA —
+    tanpa satu pun query alokasi atau layar ketersediaan perlu diubah, dan
+    tanpa ada tempat kedua yang bisa lupa menyaring.
+
+    SATU JANJI, SATU PEMILIK — bagian yang paling mudah dirusak. Begitu
+    pesanan sungguhan dari customer itu diterima, jatahnya BERPINDAH dari
+    booking ke pesanan (ProductBooking::consume, dipanggil dari accept()
+    SEBELUM FIFO). Perpindahannya mencakup dua hal berbeda:
+      1. Jatah yang SUDAH tercadang — alokasinya berpindah pemilik, tanpa satu
+         unit pun bergerak di rak. Karena itu tidak ada mutasi ledger di sini.
+      2. Jatah yang MASIH MENUNGGU stok — tidak ada yang bisa dipindahkan,
+         tetapi janjinya ditutup, karena mulai sekarang pesanan itulah yang
+         memikulnya. Melewatkan langkah ini membuat satu unit yang sama antre
+         DUA KALI saat barang baru masuk.
+
+    SATU ANTREAN UNTUK DUA BENTUK JANJI. Pesanan yang disetujui melebihi stok
+    dan booking yang belum ada barangnya sama-sama "sudah dijanjikan, belum
+    ada barangnya". Keduanya mengantre di deret yang sama, urut KAPAN JANJINYA
+    DIBUAT. Memberi salah satunya prioritas mutlak salah dengan sendirinya:
+    booking kemarin akan menyalip pesanan yang menunggu tiga minggu, atau
+    sebaliknya. Yang bisa dijelaskan ke customer hanya satu — siapa yang
+    dijanjikan lebih dulu, dia dilayani dulu.
+
+    TIDAK PERNAH DILEPAS OTOMATIS, sekalipun tanggal butuhnya lewat. Melepas
+    jatah customer diam-diam adalah masalah yang lebih besar daripada booking
+    yang menua; yang lewat tenggat disorot di layar, pelepasannya selalu
+    keputusan orang, dan pembatalan wajib beralasan.
+
+    IZIN: Logistik, BUKAN Sales. Yang ditahan adalah stok gudang, dan tiap
+    unit yang dibooking langsung hilang dari angka yang boleh dijanjikan ke
+    pelanggan lain. Membuka pintu itu ke Sales berarti siapa pun bisa mengunci
+    stok untuk pelanggannya sendiri tanpa gudang tahu.
+
+    DIUJI: tests/Feature/Wms/ProductBookingTest.php (15 test).
+
   SUSULAN: RIWAYAT OUTSTANDING & PEMBATALAN YANG BERTAHAN
   (permintaan pemilik produk, bukan PRD)
   Migration: create_sales_order_outstandings_table (termasuk backfill)
