@@ -563,7 +563,22 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     kedaluwarsa yang benar supaya FIFO tidak rusak, dan itu keputusan yang
     lebih baik lewat jalur penambahan stok ke rak yang sudah ada.
 
-    DIUJI: tests/Feature/Wms/StockTakeTest.php (22 test),
+    MENYIMPAN TANPA MEMUAT ULANG HALAMAN (temuan lapangan). Versi pertama
+    memakai submit formulir biasa, sehingga tiap centang memuat ulang halaman
+    dan melempar orang yang sudah menghitung sampai baris terakhir kembali ke
+    puncak — lalu ia harus menggulir turun lagi mencari tempatnya. Pada sesi
+    berisi ribuan baris itu bukan gangguan kecil; itu yang membuat orang
+    berhenti memakai fiturnya.
+
+    count() karena itu menjawab DUA bentuk: JSON untuk layar penghitungan, dan
+    redirect biasa kalau disubmit sebagai formulir. Formulirnya tetap formulir
+    sungguhan, jadi JavaScript yang gagal dimuat hanya mengembalikan perilaku
+    muat ulang — bukan tombol yang tidak melakukan apa-apa di depan operator
+    yang sedang berdiri di rak. Penolakan aturan opname ditempel DI BARISNYA,
+    bukan sebagai peringatan di puncak halaman yang tidak akan terlihat oleh
+    orang yang sedang berada di baris ke-800.
+
+    DIUJI: tests/Feature/Wms/StockTakeTest.php (25 test),
            tests/Feature/Wms/WarehouseMapContentsTest.php (12 test).
 
   SUSULAN: KARANTINA & FORMULA LAMA (permintaan pemilik produk, bukan PRD)
