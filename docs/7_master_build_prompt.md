@@ -1587,6 +1587,44 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
 
     DIUJI: tests/Feature/Wms/OutstandingHistoryTest.php (16 test).
 
+  KOREKSI: PESANAN YANG DIPICKING LEBIH DARI SATU KALI
+  (temuan lapangan pemilik produk)
+  Berkas: PickingListItem::scopeForOrderRound, Shipment::{qtyTerpicking,
+          bandingkan,skuTidakCocok,stokUntukMenutupi},
+          PickingRun::{kembalikanHasilPicking,kembalikanSebagian}
+
+    GEJALANYA: layar Siap Kirim melaporkan "diambil dari rak 53" untuk barang
+    yang nyatanya dipicking 3. Angka itu 50 dari putaran picking pertama —
+    pesanannya sudah dibatalkan dan barangnya sudah lama kembali ke rak —
+    ditambah 3 dari putaran sekarang.
+
+    AKARNYA: satu pesanan bisa dipicking BERKALI-KALI. Pesanan yang
+    dibatalkan kembali ke antrean, lalu diterima dan dipicking lagi di daftar
+    baru. Baris picking putaran lama sengaja TIDAK dihapus — ia riwayat
+    daftar picking yang sudah selesai dikerjakan — tetapi empat kueri mencari
+    baris picking lewat sales_order_id saja, seolah satu pesanan hanya punya
+    satu putaran seumur hidupnya.
+
+    YANG JAUH LEBIH BERBAHAYA DARIPADA ANGKA DI LAYAR: pengembalian stok saat
+    pembatalan memakai kueri yang sama persis. Pembatalan KEDUA akan
+    mengembalikan barang putaran pertama sekali lagi — stok bertambah dari
+    ketiadaan, ledger tetap terlihat rapi karena mutasinya memang ditulis,
+    dan selisihnya baru ketahuan saat opname. Diperiksa di basis data
+    produksi saat perbaikan ini dibuat: baru satu pesanan yang berputar dua
+    kali dan belum pernah dibatalkan lagi, jadi stok hantunya belum sempat
+    terjadi. Cacatnya laten, bukan sudah menagih korban.
+
+    PENANDA PUTARAN: sales_orders.picking_list_id. Ia dikosongkan saat
+    pembatalan dan diisi lagi saat pesanan masuk daftar baru, sehingga selalu
+    menunjuk putaran yang sedang berjalan. Pesanan tanpa daftar berarti tidak
+    ada putaran berjalan, dan scope-nya sengaja tidak mengembalikan apa pun
+    alih-alih diam-diam jatuh ke seluruh riwayat.
+
+    DIUJI: tests/Feature/Wms/RepeatPickingTest.php (4 test). Dua di antaranya
+    diperiksa GAGAL lebih dulu tanpa perbaikannya — yang satu menghasilkan
+    angka 53 yang persis dilaporkan, yang satu mengembalikan 53 unit ke rak
+    yang seharusnya hanya 3.
+
 FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
   Migration: sales_returns, sales_return_details,
              add_sales_return_fk_to_inventory_stocks_table (FK susulan)
