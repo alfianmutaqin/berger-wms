@@ -2090,8 +2090,41 @@ FASE 11 — Dashboard & Laporan
     menjumlahkan segalanya sekaligus, jadi justru paling mudah membocorkan
     angka gudang lain. Semua metrik lewat WarehouseScope::apply.
 
-  TAHAP 2 — LAPORAN — BELUM. ReportController masih dummy 13 baris.
-  Dashboard Produksi & Operator juga masih angka statis.
+  TAHAP 2 — DASHBOARD PRODUKSI & OPERATOR — SELESAI
+  Berkas: App\Support\Reporting\{ProductionDashboard,OperatorDashboard},
+          DashboardController::{produksi,operator},
+          wms/dashboard/{produksi,operator}.blade.php, DashboardPeranTest
+
+    ANGKA YANG MENJANJIKAN MODUL YANG TIDAK ADA DIBUANG SELURUHNYA.
+    Dashboard Produksi lama menampilkan target produksi, mesin aktif, dan
+    stok bahan baku menipis; dashboard Operator menampilkan "Stok Rak
+    Menipis" dengan tombol "Isi Ulang Rak". Tidak satu pun modulnya ada di
+    sistem ini — tidak ada tabel bahan baku, tidak ada mesin, tidak ada
+    purchasing, tidak ada replenishment rak. Angka semacam itu lebih
+    berbahaya daripada halaman kosong: ia menjanjikan sesuatu yang tidak
+    pernah dibangun, dan selama masih terpasang orang menunggu ia berubah
+    sendiri suatu hari. Dikunci oleh assertDontSee di DashboardPeranTest.
+
+    PRODUKSI — EMPAT ANGKA, DAN BATASNYA DISENGAJA. Yang ditanyakan orang
+    Produksi tiap hari cuma: serahan saya sudah naik rak belum, sudah diakui
+    gudang belum, berapa yang masuk bulan ini, dan adakah yang jumlahnya
+    berselisih saat dinaikkan. Yang terakhir paling berguna dan satu-satunya
+    kabar buruk: pallet_qty diisi Produksi, qty_actual diisi Operator, dan
+    selisihnya kalau tidak ditampilkan di sini baru ketahuan lewat stocktake
+    berbulan-bulan kemudian. Dijumlahkan MUTLAK, bukan neto.
+
+    PRODUKSI DIBATASI PER GUDANG, BUKAN PER ORANG. Serah terima pekerjaan
+    satu regu; menyaring "dokumen saya" membuat rekannya sendiri hilang.
+
+    OPERATOR — DAFTAR PEKERJAAN, BUKAN LAPORAN. Tiap kartu punya tombol.
+    Kartu yang tidak ada pekerjaannya TIDAK DIGAMBAR: "Sedang Anda Kerjakan"
+    (claimed_by = dirinya) dan "Stocktake Berjalan" hanya muncul kalau
+    memang ada. Stocktake bukan pekerjaan harian — menampilkan "0 sesi"
+    sepanjang tahun membuat orang berhenti membacanya justru pada minggu ia
+    benar-benar berisi. Dua antrean tetap (put-away & daftar picking) SELALU
+    tampil walau nol, karena di sana nol adalah kabar yang berguna.
+
+  TAHAP 3 — LAPORAN — BELUM. ReportController masih dummy 13 baris.
 
 FASE 12 — E-POD (Electronic Proof of Delivery)
   Ruang lingkup: pastikan EpodController::show/confirm terhubung ke
