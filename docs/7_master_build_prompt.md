@@ -2124,7 +2124,50 @@ FASE 11 — Dashboard & Laporan
     benar-benar berisi. Dua antrean tetap (put-away & daftar picking) SELALU
     tampil walau nol, karena di sana nol adalah kabar yang berguna.
 
-  TAHAP 3 — LAPORAN — BELUM. ReportController masih dummy 13 baris.
+  TAHAP 3 — DASHBOARD SALES — SELESAI
+  Berkas: App\Support\Reporting\SalesDashboard,
+          App\Http\Controllers\Sales\DashboardController,
+          sales/dashboard.blade.php, DashboardSalesTest
+
+    UNGGAH BUKTI PALSU DIHAPUS — temuan paling serius di seluruh Fase 11.
+    Tombol "Upload Bukti" memanggil simulateUploadBukti(): jendela unggah
+    tiruan, spinner 1,5 detik, lalu "Berhasil! Bukti pengiriman berhasil
+    diunggah. Status pesanan akan segera di-update menjadi Selesai" — tanpa
+    mengirim apa pun ke mana pun, dan tombolnya berubah hijau "Selesai".
+    Itu bukan tampilan yang belum tersambung, itu kebohongan aktif kepada
+    orang yang lalu mengira pekerjaannya beres. Unggahan sungguhan menempel
+    di halaman detail pesanan (POST sales/orders/{order}/proofs), jadi
+    dashboard hanya menunjuk ke sana. Dikunci assertDontSee.
+
+    GRAFIK TARGET KARANGAN DIHAPUS. "Target vs Realisasi" punya garis target
+    700/minggu yang ditulis tangan di dalam JavaScript. Tidak ada tabel
+    target di sistem ini dan tidak ada tempat untuk menetapkannya. Grafik
+    yang membandingkan kenyataan dengan angka karangan lebih buruk daripada
+    tidak ada grafik. Diganti "Pesanan Dibuat vs Selesai", 6 bulan.
+
+    DISUSUN MENURUT SIAPA YANG HARUS BERGERAK BERIKUTNYA, bukan menurut
+    status. Versi lama menderetkan Dibuat/Menunggu/Dikirim/Sukses seolah
+    setara; padahal tiga hal MACET DI TANGAN SALES dan mudah terlupakan:
+      DRAFT   — belum disubmit berarti TIDAK TERLIHAT Logistik sama sekali;
+                ia tidak sedang mengantre, ia tidak ada. Digabung batas jam
+                OrderCutoff (15:00), draft yang lupa disubmit membuat
+                pelanggan mundur satu hari penuh — banner cutoff dikirim ke
+                view supaya kartunya bisa berkata tegas saat sudah lewat.
+      DITOLAK — masih bisa diperbaiki lalu diajukan ulang; dibiarkan, ia
+                diam selamanya karena tidak ada yang menagihnya.
+      BUKTI   — pesanan tidak pernah dianggap selesai sampai fotonya masuk.
+    Seluruh bagian itu tidak digambar saat kosong; diganti satu baris tenang.
+
+    OUTSTANDING IKUT DITAMPILKAN ke Sales karena SALES yang ditelepon
+    pelanggan saat barang tidak lengkap, bukan gudang. Angkanya sama dengan
+    menu Outstanding milik Logistik, hanya dipersempit ke pesanan sendiri.
+
+    SEMUA LEWAT scopeOwnedBy — Sales tidak pernah melihat pesanan rekannya.
+
+    Rute /sales/dashboard yang tadinya closure `return view(...)` di
+    routes/web.php kini punya controller sendiri.
+
+  TAHAP 4 — LAPORAN — BELUM. ReportController masih dummy 13 baris.
 
 FASE 12 — E-POD (Electronic Proof of Delivery)
   Ruang lingkup: pastikan EpodController::show/confirm terhubung ke
