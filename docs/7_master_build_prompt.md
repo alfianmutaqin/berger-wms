@@ -594,7 +594,55 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
   sudah ditandai tidak boleh kehilangan tandanya, dan dua kolom untuk satu
   penanda yang sama adalah dua sumber kebenaran.
 
-  DUA PENANDA, SIFAT BERBEDA — JANGAN DISATUKAN:
+  TIGA PENANDA, SIFAT BERBEDA — JANGAN DISATUKAN:
+
+    DAHULUKAN KELUAR (prioritize_out, boolean) — KEBALIKAN KARANTINA.
+    Migration 2026_09_26_000001. Batch tetap 'active' dan tetap harus lolos
+    semua syarat kelayakan jual; yang berubah hanya POSISINYA dalam antrean.
+    Kasusnya: B01 & B05 sama-sama di rak, FIFO mengambil B01, tetapi B05-lah
+    yang harus dikirim.
+
+    SATU-SATUNYA PENANDA YANG MENGUBAH URUTAN ALOKASI, dan karena itu
+    urutannya DIPUSATKAN ke InventoryStock::scopeUrutanKeluar() (dulu
+    scopeFifo — namanya diganti karena urutannya bukan FIFO murni lagi, dan
+    scope bernama fifo() yang ternyata tidak FIFO adalah jebakan). Sebelumnya
+    TIGA jalur menulis orderBy sendiri-sendiri: FifoAllocator::allocate,
+    ProductBooking::reserve, Shipment::stokUntukMenutupi. Kalau penandanya
+    cuma dipasang di satu jalur, batch didahulukan saat pesanan DITERIMA
+    tetapi tidak saat barangnya DIKELUARKAN — ketimpangan yang baru ketahuan
+    berbulan-bulan kemudian.
+
+    Shipment tetap menyortir di PHP (kunci pertamanya — batch yang dipakai
+    pesanan ini — hanya diketahui di PHP), jadi aturannya disalin ke sana
+    dengan komentar penunjuk. Kunci pertama itu TETAP MENANG: batch yang
+    benar-benar naik ke kendaraan tidak boleh disalip oleh apa pun.
+
+    FIFO TETAP BERLAKU DI ANTARA SESAMA BATCH BERTANDA. Penandanya menjawab
+    "yang mana duluan", bukan membatalkan urutan umur.
+
+    ALASAN WAJIB, ditegakkan CHECK constraint inventory_stocks_prioritas_
+    lengkap — bukan sekadar validasi form. Melanggar FIFO akan ditanyakan
+    orang; tanpa alasan tertulis, penanda yang dimaksudkan sementara berubah
+    jadi keadaan permanen tanpa pemilik. Alasannya ikut tercetak di layar
+    picking: operator yang melihat batch baru diambil sementara yang lama
+    masih di rak akan mengira daftarnya salah dan "membetulkan" sendiri.
+
+    LEPAS SENDIRI SAAT BATCH HABIS lewat stock:sweep-priority (harian 00:15,
+    diselisihkan lagi 5 menit dari sweep karantina). HABIS = qty_available +
+    qty_allocated nol DI SELURUH BARIS BATCH. Teralokasi penuh BELUM habis:
+    barangnya masih di rak dan alokasinya masih bisa dibatalkan. Dipilih
+    sweep, bukan dipicu saat pengambilan, karena qty bisa mencapai nol lewat
+    banyak jalur (kirim/koreksi/transfer/opname) — dan penanda yang
+    tertinggal pada batch kosong tidak berbahaya sama sekali, sebab batch
+    kosong tidak pernah ikut dicalonkan keluar.
+
+    KARANTINA + DAHULUKAN BOLEH MENYALA BERSAMAAN. Keduanya arah berlawanan
+    pada sumbu yang sama, jadi tidak masuk akal dalam praktik — tetapi tidak
+    dilarang: karantina lepas sendiri, dan begitu lepas penandanya langsung
+    berlaku. Melarangnya justru memaksa Logistik mengingat untuk menandai
+    ulang setelah karantina berakhir.
+
+    DIUJI: tests/Feature/Wms/BatchPriorityTest.php (19 test).
 
     MASALAH KUALITAS (has_quality_issue, boolean) — MURNI INFORMASI. Stok
     tetap 'active', tetap ikut FIFO. Tidak ada satu baris kode alokasi pun
