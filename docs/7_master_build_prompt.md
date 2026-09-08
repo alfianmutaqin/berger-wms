@@ -2056,6 +2056,43 @@ FASE 11 — Dashboard & Laporan
   operator) dan ReportController ke query agregat dari tabel-tabel yang
   sudah dibangun Fase 1-10 — bukan angka statis.
 
+  TAHAP 1 — DASHBOARD UTAMA — SELESAI
+  Berkas: App\Support\Reporting\AdminDashboard, DashboardController::admin,
+          wms/dashboard/admin.blade.php, DashboardAdminTest
+
+    SATU HALAMAN, TIGA SUDUT PANDANG. Dashboard utama dibuka Super Admin,
+    Manager, dan Logistik — dan yang boleh mereka lihat tidak sama.
+    Permintaan pemilik produk: "batasi per card, ada yang bisa diakses
+    Logistik ada juga yang hanya muncul kalau login sebagai admin".
+
+    KARTU DIBATASI DI TEMPAT ANGKANYA DIHITUNG, BUKAN DI BLADE. Tiap kartu
+    didaftarkan bersama izin penjaganya di AdminDashboard::kartu(), dan
+    angkanya baru dihitung kalau izinnya lolos. Menyembunyikan dengan @can
+    saja LEBIH LEMAH: datanya tetap ikut terkirim ke halaman dan bisa
+    dibaca dari "view source" — yang disembunyikan cuma kotaknya. Blade
+    memeriksa @isset($m['...']), bukan izinnya lagi.
+
+    IZINNYA MENUMPANG YANG SUDAH ADA. Tiap kartu memakai izin milik halaman
+    tujuannya (OUTBOUND_APPROVAL, INVENTORY_ADJUST, ADMIN_AUDIT, dst),
+    bukan izin baru khusus dashboard — dua daftar izin yang harus sepakat
+    tentang hal yang sama suatu hari akan berbeda pendapat, dan akibatnya
+    kartunya tampil tetapi halamannya 403.
+
+    TIGA TINGKAT, DAN GARISNYA BUKAN SOAL RAHASIA MELAINKAN SOAL PENILAIAN:
+      - Alur harian (semua): antrean approval, picking, pengiriman, bukti
+        kirim, verifikasi inbound, outstanding, kedaluwarsa, karantina.
+      - Pengawasan (Manager & Super Admin): koreksi stok 30 hari, selisih
+        stocktake terakhir, jumlah pengguna. Ini angka untuk MENILAI
+        pekerjaan gudang, dan Logistik adalah yang dinilai.
+      - Log aktivitas (Super Admin saja) — alasan di Permission::ADMIN_AUDIT.
+
+    BATAS GUDANG BERLAKU DI SINI JUGA. Dashboard satu-satunya layar yang
+    menjumlahkan segalanya sekaligus, jadi justru paling mudah membocorkan
+    angka gudang lain. Semua metrik lewat WarehouseScope::apply.
+
+  TAHAP 2 — LAPORAN — BELUM. ReportController masih dummy 13 baris.
+  Dashboard Produksi & Operator juga masih angka statis.
+
 FASE 12 — E-POD (Electronic Proof of Delivery)
   Ruang lingkup: pastikan EpodController::show/confirm terhubung ke
   delivery_proofs (Fase 6) secara konsisten dari sisi customer-facing.
