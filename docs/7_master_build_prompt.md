@@ -581,6 +581,64 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     DIUJI: tests/Feature/Wms/StockTakeTest.php (25 test),
            tests/Feature/Wms/WarehouseMapContentsTest.php (12 test).
 
+  SUSULAN: AUDIT INVENTORY (permintaan pemilik produk)
+  ============================================================
+  Migration: 2026_09_27_000001_create_activity_logs_table
+  Berkas: App\Models\ActivityLog, App\Support\Activity,
+          Wms\ActivityLogController, wms/admin/activity-log.
+
+  TEMUAN 1 — "STOK TIDAK TERBACA" TERNYATA BEDA GUDANG. Stok ditambahkan
+  Super Admin ke WH-02 Pekanbaru, sementara seluruh pesanan & booking ada di
+  WH-01 Karawang. Sistemnya benar (stok terikat gudang), TAMPILANNYA yang
+  salah: layar hanya menulis angka nol, tanpa membedakan "produk ini memang
+  habis" dari "produknya ada, cuma di gudang sebelah". Ditambahkan
+  FifoAllocator::elsewhereFor() — dipakai layar booking & terima pesanan
+  UNTUK MENJELASKAN saja, tidak pernah ikut dialokasikan.
+
+  TEMUAN 2 — PEMINDAHAN RAK MEMBUANG PENANDA BATCH. InventoryController::
+  transfer() menyalin status & ddp_reason ke baris tujuan tetapi TIDAK
+  menyalin penanda karantina/masalah kualitas/dahulukan keluar. Akibatnya
+  separuh batch bertanda dan separuhnya tidak — melanggar "satu batch, satu
+  keputusan". Lebih buruk: metadata karantina yang tidak ikut membuat
+  CHECK inventory_stocks_karantina_lengkap menolak baris tujuan, sehingga
+  memindahkan batch terkarantina GAGAL dengan galat database mentah.
+
+  TEMUAN 3 — OPERATOR GUDANG TIDAK BISA MEMINDAHKAN ANTAR RAK. Aturan
+  pemilik produk: Operator boleh memindahkan (merekalah yang mengangkat
+  barangnya), tetapi TIDAK menambah/mengurangi. INVENTORY_TRANSFER dibuka ke
+  WAREHOUSE_OPERATOR; INVENTORY_ADJUST tetap Super Admin & Manager saja.
+
+  TEMUAN 4 — BATCH BERTANDA "DAHULUKAN KELUAR" MASIH FIFO DI ANTARA
+  SESAMANYA. Aturan pemilik produk: pada tanda ini FIFO berubah jadi LIFO.
+  scopeUrutanKeluar() kini dua arah dalam satu ekspresi.
+
+  LOG AKTIVITAS — SUPER ADMIN SAJA (Permission::ADMIN_AUDIT). Manager
+  SENGAJA ditolak walau ia ikut hampir semua gate admin lain: log ini
+  merekam tindakan Manager juga, dan orang yang diawasi tidak boleh
+  memegang jendela pengawasnya sendiri.
+
+  TIDAK DILEBUR DENGAN stock_movements. Buku besar menjawab "berapa
+  jumlahnya dan dari mana angka itu" — jumlah qty_change-nya WAJIB setara
+  qty_available, jadi tidak boleh kemasukan kejadian yang tidak menggeser
+  angka. Log aktivitas menjawab "siapa melakukan apa", termasuk kejadian
+  tanpa perubahan qty (pindah rak, pasang penanda, buat booking) dan
+  konteks yang tidak punya tempat di buku besar (nilai sebelum/sesudah,
+  IP, alasan yang diketik). Meleburnya merusak salah satu dari keduanya.
+
+  DICATAT DI TEMPAT KEJADIAN, BUKAN LEWAT OBSERVER. Observer tahu kolom
+  mana yang berubah tetapi tidak tahu MENGAPA: qty yang turun terlihat sama
+  entah dikoreksi Manager, dipicking, atau disahkan opname.
+
+  MENCATAT TIDAK BOLEH MENGGAGALKAN TINDAKANNYA. Activity::record()
+  menelan seluruh Throwable ke Log::error. Pemindahan stok yang sudah sah
+  tidak boleh batal cuma karena catatannya gagal ditulis.
+
+  APPEND-ONLY di model (pola StockMovement) DAN tanpa rute tulis. Nama &
+  peran pelaku DISALIN sebagai teks: menghapus user tidak boleh ikut
+  menghapus jejak perbuatannya.
+
+  DIUJI: tests/Feature/Wms/ActivityLogTest.php (10 test).
+
   SUSULAN: KARANTINA & MASALAH KUALITAS (permintaan pemilik produk, bukan PRD)
   ============================================================
   Migration: 2026_09_20_000001_add_quarantine_and_old_formula_to_inventory_stocks_table
