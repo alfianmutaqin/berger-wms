@@ -298,9 +298,9 @@ FASE 2 — Master Data: Produk & Pelanggan
       tanpa batas) — dipertahankan hanya sebagai jejak, jangan diikuti.
       ~~Satu bin boleh memuat BEBERAPA produk dan BEBERAPA batch sekaligus.
       Jangan tambahkan unique constraint pada location_id.~~
-    - Koreksi stock opname WAJIB menyertakan alasan; dicatat sebagai
+    - Koreksi stocktake WAJIB menyertakan alasan; dicatat sebagai
       stock_movements bertipe ADJUSTMENT dengan notes wajib + user_id.
-    - Denah gudang adalah antarmuka opname-nya: tiap kotak bin sudah punya
+    - Denah gudang adalah antarmuka stocktake-nya: tiap kotak bin sudah punya
       slot indikator keterisian yang tinggal diisi begitu inventory_stocks
       dibangun. Lihat komentar "Slot isi bin (FASE 4)" di
       resources/views/wms/master/locations-map.blade.php.
@@ -519,13 +519,13 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     1. ANGKA SISTEM DIBEKUKAN SAAT SESI DIBUKA. Menghitung satu gudang makan
        waktu berjam-jam sampai berhari-hari, dan selama itu barang tetap
        keluar-masuk. Kalau pembandingnya angka "sekarang", tiap pengiriman yang
-       berangkat di tengah penghitungan terbaca sebagai selisih opname —
+       berangkat di tengah penghitungan terbaca sebagai selisih stocktake —
        padahal ia pergerakan yang benar dan sudah tercatat rapi di ledger.
 
     2. KOREKSINYA DITERAPKAN SEBAGAI SELISIH, BUKAN PENIMPAAN. Yang ditambahkan
        ke stok saat pengesahan adalah (fisik - beku), bukan angka fisiknya
        langsung. Barang yang sah berangkat SETELAH raknya dihitung karena itu
-       tidak dihidupkan kembali oleh laporan opname. Inilah yang membuat opname
+       tidak dihidupkan kembali oleh laporan stocktake. Inilah yang membuat stocktake
        tidak perlu membekukan operasi gudang — dan bagian yang paling mudah
        dirusak oleh "sederhanakan saja jadi set qty". DIJAGA TEST khusus.
 
@@ -553,7 +553,7 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     kesalahannya sendiri.
 
     MENU SENDIRI, BUKAN MENUMPANG DENAH. Denah menjawab "di mana barangnya" dan
-    boleh dibuka kapan saja; opname adalah PROSES bertahap dengan awal, akhir,
+    boleh dibuka kapan saja; stocktake adalah PROSES bertahap dengan awal, akhir,
     dan penanggung jawab. Yang dipinjam dari denah adalah SUSUNANNYA: layar
     penghitungan dikelompokkan deret -> rak, sehingga yang menghitung membaca
     layar dengan urutan yang sama seperti saat ia menyusuri gudang.
@@ -574,12 +574,66 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     redirect biasa kalau disubmit sebagai formulir. Formulirnya tetap formulir
     sungguhan, jadi JavaScript yang gagal dimuat hanya mengembalikan perilaku
     muat ulang — bukan tombol yang tidak melakukan apa-apa di depan operator
-    yang sedang berdiri di rak. Penolakan aturan opname ditempel DI BARISNYA,
+    yang sedang berdiri di rak. Penolakan aturan stocktake ditempel DI BARISNYA,
     bukan sebagai peringatan di puncak halaman yang tidak akan terlihat oleh
     orang yang sedang berada di baris ke-800.
 
     DIUJI: tests/Feature/Wms/StockTakeTest.php (25 test),
            tests/Feature/Wms/WarehouseMapContentsTest.php (12 test).
+
+  SUSULAN: KIRIM ULANG OUTSTANDING (permintaan pemilik produk)
+  ============================================================
+  Migration: 2026_09_29_000001_create_sales_order_reshipments_table
+  Berkas: SalesOrderReshipment, App\Support\Outbound\Reshipment,
+          OutstandingController::reship, wms/outbound/outstanding.blade.php
+
+  NOMOR SO SAMA, SURAT JALAN BARU. Pesanan yang berangkat sebagian tetap
+  menjadi kewajiban perusahaan. Begitu stoknya ada, sisanya dikirim menyusul
+  dengan nomor SO YANG SAMA — pesanannya memang itu juga — lewat Surat Jalan
+  BARU, karena SJ menerangkan satu kali keberangkatan kendaraan, bukan satu
+  pesanan.
+
+  MEMBUAT PESANAN BARU ADALAH JALAN YANG SALAH, dan menggoda karena terlihat
+  lebih sederhana: satu kewajiban akan terbaca sebagai dua pesanan, penjualan
+  terhitung dua kali, dan pelanggan menerima dua nomor SO untuk satu
+  pembelian.
+
+  TIDAK ADA MESIN BARU. Sistem sudah bisa memicking satu pesanan lebih dari
+  sekali sejak koreksi "pesanan yang dipicking lebih dari satu kali"
+  (PickingListItem::scopeForOrderRound). Reshipment::open() hanya MEMBUKA
+  putaran berikutnya: picking_list_id dikosongkan, status kembali APPROVED,
+  shipped_at dinolkan, lalu kekurangannya dialokasikan lewat FifoAllocator.
+  Seluruh alur picking & pengiriman sesudahnya berjalan apa adanya.
+
+  picking_list_id WAJIB DIKOSONGKAN. Dibiarkan terisi, dua hal rusak diam-
+  diam: PickingListBuilder menolak pesanan ini masuk daftar baru (ia
+  menyaring picking_list_id NULL), dan PendingAllocationFiller melewatinya
+  sehingga stok yang datang belakangan tidak pernah mengisinya. Tidak ada
+  galat apa pun — pesanannya cuma hilang dari antrean.
+
+  HANYA DARI PUTARAN YANG SUDAH SELESAI (shipping/proof/completed/
+  completed_billing). Membukanya di atas pesanan yang masih approved/picking/
+  siap-kirim akan mencadangkan stok DUA KALI untuk kekurangan yang sama.
+
+  SEBANYAK YANG ADA, sama seperti penerimaan pesanan. Stok yang cuma cukup
+  sebagian tetap dicadangkan dan sisanya TETAP outstanding — bisa dikirim
+  ulang lagi nanti. Yang tidak kebagian DISEBUT di pesan suksesnya.
+
+  qty_shipped MENUMPUK ANTAR PUTARAN (Shipment::catatQtyTerkirim). Dahulu
+  ditimpa, dan itu benar selama satu pesanan hanya berangkat sekali. Sejak
+  ada pengiriman ulang, SJ kedua akan MENGHAPUS catatan keberangkatan
+  pertama: pesanan 10 yang berangkat 6 lalu menyusul 4 tercatat "terkirim 4,
+  kurang 6" — terbalik, dan pelanggan ditagih barang yang sudah diterimanya.
+  Aman dari hitungan ganda karena satu SJ hanya bisa berangkat sekali.
+
+  RIWAYAT PUTARAN DI TABEL SENDIRI, bukan kolom di sales_orders: pengiriman
+  ulang bisa terjadi berkali-kali (30 menyusul minggu ini, 20 bulan depan),
+  dan kolom hanya bisa menyimpan yang terakhir. Append-only.
+
+  GATE-nya OUTBOUND_APPROVAL, bukan izin baru: membuka putaran mencadangkan
+  stok persis seperti menerima pesanan.
+
+  DIUJI: tests/Feature/Wms/OutstandingReshipmentTest.php (12 test).
 
   SUSULAN: AUDIT INVENTORY (permintaan pemilik produk)
   ============================================================
@@ -597,7 +651,7 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
 
   TEMUAN 2 — PEMINDAHAN RAK MEMBUANG PENANDA BATCH. InventoryController::
   transfer() menyalin status & ddp_reason ke baris tujuan tetapi TIDAK
-  menyalin penanda karantina/masalah kualitas/dahulukan keluar. Akibatnya
+  menyalin penanda karantina/quality issue/dahulukan keluar. Akibatnya
   separuh batch bertanda dan separuhnya tidak — melanggar "satu batch, satu
   keputusan". Lebih buruk: metadata karantina yang tidak ikut membuat
   CHECK inventory_stocks_karantina_lengkap menolak baris tujuan, sehingga
@@ -627,7 +681,7 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
 
   DICATAT DI TEMPAT KEJADIAN, BUKAN LEWAT OBSERVER. Observer tahu kolom
   mana yang berubah tetapi tidak tahu MENGAPA: qty yang turun terlihat sama
-  entah dikoreksi Manager, dipicking, atau disahkan opname.
+  entah dikoreksi Manager, dipicking, atau disahkan stocktake.
 
   MENCATAT TIDAK BOLEH MENGGAGALKAN TINDAKANNYA. Activity::record()
   menelan seluruh Throwable ke Log::error. Pemindahan stok yang sudah sah
@@ -647,7 +701,7 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
           InventoryController::quarantine/releaseQuarantine/toggleQualityIssue.
 
   PENANDANYA DIGANTI NAMA, BUKAN DIGANTI SIFAT. Semula "Formula Lama"
-  (is_old_formula); pemilik produk memintanya jadi "Masalah Kualitas"
+  (is_old_formula); pemilik produk memintanya jadi "Quality Issue"
   (has_quality_issue). Kolomnya DI-RENAME, bukan ditambah baru — batch yang
   sudah ditandai tidak boleh kehilangan tandanya, dan dua kolom untuk satu
   penanda yang sama adalah dua sumber kebenaran.
@@ -690,7 +744,7 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     qty_allocated nol DI SELURUH BARIS BATCH. Teralokasi penuh BELUM habis:
     barangnya masih di rak dan alokasinya masih bisa dibatalkan. Dipilih
     sweep, bukan dipicu saat pengambilan, karena qty bisa mencapai nol lewat
-    banyak jalur (kirim/koreksi/transfer/opname) — dan penanda yang
+    banyak jalur (kirim/koreksi/transfer/stocktake) — dan penanda yang
     tertinggal pada batch kosong tidak berbahaya sama sekali, sebab batch
     kosong tidak pernah ikut dicalonkan keluar.
 
@@ -727,7 +781,7 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
   — persis "masih boleh dijual tapi harus nunggu" tanpa risiko lupa
   mengecualikannya di suatu tempat.
 
-  SATU BATCH, SATU KEPUTUSAN. Karantina dan Masalah Kualitas diterapkan ke
+  SATU BATCH, SATU KEPUTUSAN. Karantina dan Quality Issue diterapkan ke
   SELURUH baris product_id+warehouse_id+batch_no (StockQuarantine::
   kunciSebatch), bukan satu baris rak saja — keduanya melekat pada apa
   yang terjadi saat produksi/pengujian, bukan pada rak tempat sekarang
@@ -1001,7 +1055,7 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
     IMPOR IDEMPOTEN: qty DISAMAKAN dengan isi berkas, BUKAN ditambahkan
     (keputusan pemilik produk). Berkas dianggap kebenaran. Kalau
     ditambahkan, satu impor ulang yang tidak disengaja melipatgandakan stok
-    seluruh gudang tanpa tanda apa pun, dan baru ketahuan saat opname
+    seluruh gudang tanpa tanda apa pun, dan baru ketahuan saat stocktake
     berikutnya. Kunci barisnya GABUNGAN sku|batch|lokasi|tgl_produksi —
     satu SKU sah muncul berkali-kali di berkas.
 
@@ -1272,6 +1326,30 @@ TAHAP 3 — PICKING (F-OUT-03) — SELESAI
           ReportPickingShortageRequest,
           wms/outbound/picking{-batching,,-detail}.blade.php
 
+    SUSULAN: MELEPAS TUGAS (PickingRun::release, permintaan pemilik produk).
+    Tugas yang sudah diambil dahulu terkunci selamanya atas nama satu orang.
+    Pengiriman digeser ke besok atau tugasnya dioper — dan satu-satunya
+    jalan keluar adalah Logistik MEMBUBARKAN daftarnya lalu menyusun ulang
+    dari nol. Terlalu mahal untuk keadaan yang sering terjadi.
+
+    AMAN TERHADAP BUKU BESAR, dan itu bukan kebetulan: menandai baris
+    picking TIDAK menyentuh stok — yang menggerakkan angka hanya complete().
+    Jadi melepas tugas cukup mengosongkan tanda pada barisnya; tidak ada
+    mutasi yang perlu dibalik. Ada test khusus yang menjaga anggapan itu
+    (test_melepas_tugas_tidak_menggerakkan_stok_sama_sekali). Sesudah
+    complete(), jalan ini tertutup: barangnya sudah turun ke dock.
+
+    BARIS YANG SUDAH DITANDAI IKUT DIKOSONGKAN — operator berikutnya tidak
+    boleh mewarisi tanda yang tidak ia buat sendiri. Pesanannya kembali ke
+    APPROVED, bukan tetap PICKING. Daftarnya TIDAK dibubarkan: isinya utuh
+    dan langsung bisa diambil operator lain.
+
+    DUA PINTU, SATU ATURAN. Operator melepas tugasnya sendiri; Logistik/
+    Manager melepas milik siapa pun — satu-satunya jalan saat operatornya
+    sudah pulang dan daftarnya tertinggal terkunci. Keduanya lewat
+    PickingRun::release(); batas siapa-boleh-melepas-milik-siapa ditegakkan
+    DI DALAM sana, bukan oleh rutenya. Alasan wajib, tercatat di activity_logs.
+
     SATU DAFTAR MEMUAT BANYAK PESANAN — keputusan pemilik produk, dan ini
     yang menentukan seluruh bentuk datanya. Satu pesanan sering hanya berisi
     beberapa item, sedangkan satu container yang berangkat memuat pesanan
@@ -1338,7 +1416,7 @@ TAHAP 3 — PICKING (F-OUT-03) — SELESAI
 
     ALASAN SELISIH WAJIB, DITEGAKKAN CHECK CONSTRAINT — bukan hanya
     FormRequest. Baris selisih tanpa keterangan adalah stok yang hilang tanpa
-    jejak, dan itu persis yang paling sering dicari saat opname berikutnya.
+    jejak, dan itu persis yang paling sering dicari saat stocktake berikutnya.
 
     TUGAS DIKUNCI KE SATU OPERATOR (keputusan pemilik produk). Tanpa penanda
     pemegang, dua operator di gudang yang sama berjalan mengambil daftar yang
@@ -1433,7 +1511,7 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
     dari rak DIKEMBALIKAN ke stok. Bagian terakhir itu yang paling mudah
     terlewat: barangnya nyata, ada di loading dock, tidak ikut naik. Tanpa
     mengembalikannya, stok tercatat berkurang 10 sementara yang pergi hanya 8
-    dan selisihnya baru ketahuan saat opname. Pengembaliannya memakai jalur
+    dan selisihnya baru ketahuan saat stocktake. Pengembaliannya memakai jalur
     yang sama dengan pembatalan setelah picking (PickingRun::masukkanKembali),
     ke rak dan batch yang dibekukan di baris picking.
 
@@ -1455,7 +1533,7 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
     sementara invoice menyebut 12, dan selisih dua angka itu yang paling
     mahal ditelusuri belakangan. Yang membedakannya dari OUT biasa adalah
     CATATANNYA, yang menyebut tegas bahwa qty ini tidak pernah tercatat saat
-    picking dan perlu ditelusuri saat opname.
+    picking dan perlu ditelusuri saat stocktake.
 
     Batchnya diambil dari yang memang dipakai pesanan ini lebih dulu, baru
     FIFO — mengambil dari batch sembarang membuat umur stok sisa berbeda dari
@@ -1693,8 +1771,8 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
       qty_shipped = 0, outstanding = 2  <- pesanan terutang selamanya
 
   Tiga catatan salah sekaligus, DAN peringatannya salah diagnosis: ia
-  menyebut "temuan stok kurang, perlu ditelusuri saat opname" — mengirim
-  opname berikutnya mengejar selisih yang tidak pernah ada.
+  menyebut "temuan stok kurang, perlu ditelusuri saat stocktake" — mengirim
+  stocktake berikutnya mengejar selisih yang tidak pernah ada.
 
   TIGA LAPIS PERBAIKAN:
 
@@ -1722,7 +1800,7 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
   belakangan.
 
   Sesudah dikonfirmasi, mutasinya sama tetapi CATATANNYA berbeda: "barang
-  PENGGANTI", bukan "selisih stok … opname". Kalimat itu yang menentukan ke
+  PENGGANTI", bukan "selisih stok … stocktake". Kalimat itu yang menentukan ke
   mana orang mencari setahun kemudian.
 
   BARIS YANG DIGANTIKAN DITUTUP (keputusan pemilik produk): outstanding jadi
@@ -1879,7 +1957,7 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
     pembatalan memakai kueri yang sama persis. Pembatalan KEDUA akan
     mengembalikan barang putaran pertama sekali lagi — stok bertambah dari
     ketiadaan, ledger tetap terlihat rapi karena mutasinya memang ditulis,
-    dan selisihnya baru ketahuan saat opname. Diperiksa di basis data
+    dan selisihnya baru ketahuan saat stocktake. Diperiksa di basis data
     produksi saat perbaikan ini dibuat: baru satu pesanan yang berputar dua
     kali dan belum pernah dibatalkan lagi, jadi stok hantunya belum sempat
     terjadi. Cacatnya laten, bukan sudah menagih korban.
