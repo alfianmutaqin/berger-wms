@@ -2025,13 +2025,64 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
     sini hanya susunan daftar pickingnya — pesanannya kembali ke antrean,
     tidak ikut batal.
 
-FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
-  Migration: sales_returns, sales_return_details,
-             add_sales_return_fk_to_inventory_stocks_table (FK susulan)
-  Ruang lingkup: docs/1 §6.10 — PERHATIKAN tabel terminologi: Sales
-  melaporkan PENOLAKAN (SalesOrderController::reportReturn), gudang yang
-  memproses RETUR (InboundController::returnsIndex/processReturn). Jangan
-  tertukar istilah di kode maupun pesan UI.
+FASE 7 — PENOLAKAN CUSTOMER (barang ditolak saat pengiriman) — SELESAI
+  Migration: sales_returns, sales_return_details (+ FK susulan
+             inventory_stocks.sales_return_detail_id)
+  Berkas: App\Support\Returns\CustomerRejection,
+          App\Models\{SalesReturn,SalesReturnDetail},
+          Wms\CustomerRejectionController, Sales\SalesOrderController::reportReturn,
+          StockActivator::activateReturn, DocumentNumber::forSalesReturn,
+          wms/inbound/{returns,return-detail}.blade.php, CustomerRejectionTest
+
+  NAMANYA DIGANTI, DAN ITU BUKAN SOAL SELERA. Rencana awal menyebutnya
+  "Retur" dengan menu "Penerimaan Retur". Istilah itu tidak menyebut
+  peristiwanya: yang terjadi adalah CUSTOMER MENOLAK barang di depan
+  tokonya. Menu kini "Penolakan Customer" — permintaan pemilik produk.
+
+  BUKAN MENUMPANG sales_order_rejections. Tabel itu namanya mirip tetapi
+  mencatat LOGISTIK menolak pesanan sebelum barang bergerak sedikit pun.
+  Yang ini kebalikannya. Satu tidak menyentuh stok, satunya mengembalikan
+  barang fisik ke rak; menyatukannya membuat setiap query "berapa kali
+  pesanan ditolak" menjawab dua pertanyaan sekaligus.
+
+  EMPAT LANGKAH, EMPAT ORANG:
+    1. report()   Sales, di depan toko, bersamaan dengan unggah foto SJ.
+    2. approve()  Logistik menilai KLAIMNYA — barang masih di atas truk.
+    3. putaway()  Operator menaikkan ke rak, memisah yang bagus dari DDP.
+    4. verify()   Logistik menilai BARANGNYA. DI SINI stok bertambah.
+
+  KENAPA LOGISTIK DUA KALI — pertanyaan dikonfirmasi pemilik produk, dijawab
+  "verifikasi penuh". Kedua sentuhan menjawab hal berbeda dan tidak bisa
+  saling menggantikan: saat approve() barangnya belum dilihat siapa pun,
+  yang diperiksa cocok tidaknya klaim dengan Surat Jalan; saat verify() yang
+  diperiksa barang fisiknya. Yang membuat langkah 4 wajib adalah pemisahan
+  bagus/DDP — keputusan bernilai uang di KEDUA arah: menandai barang bagus
+  sebagai DDP menyembunyikan kehilangan, menandai barang rusak sebagai bagus
+  menjualnya ke customer berikutnya. Pola yang sama dengan STOCKTAKE_COUNT
+  vs STOCKTAKE_MANAGE. Barang tolakan juga jalur masuk PALING BERISIKO
+  (sudah naik truk, dibongkar, ditolak), bukan paling ringan — dan
+  membebaskannya dari verifikasi menjadikannya satu-satunya cara memasukkan
+  stok tanpa pemeriksaan.
+
+  STOK TIDAK BERGERAK SAMA SEKALI SEBELUM verify(). Langkah 1-3 hanya
+  menulis catatan. Dikunci test yang menghitung sum(qty_available) dan
+  count(stock_movements) sebelum/sesudah put-away.
+
+  BATCH DAN UMURNYA IKUT PULANG. production_date disalin dari baris picking
+  yang benar-benar diambil dari rak, bukan diisi hari ini: umur barang tidak
+  mundur karena ia sempat pulang, dan tanggal baru membuat barang lama
+  terbaca muda lalu mengantre paling belakang di FIFO. Batch yang tidak
+  ketemu DILEMPAR, bukan ditebak.
+
+  TIGA ANGKA DISIMPAN TERPISAH: qty_rejected (kata Sales), qty_approved
+  (kata Logistik), qty_good + qty_ddp (yang sampai di rak). Ketiganya boleh
+  berbeda dan perbedaannya justru yang perlu dilihat.
+
+  IZIN DIPECAH TIGA: RETURN_VIEW (semua yang terlibat, termasuk Operator —
+  ia perlu tahu ada barang menunggu tanpa ditelepon), RETURN_APPROVE
+  (Logistik/Manager/SA: setujui + verifikasi), RETURN_PUTAWAY (Operator).
+  INBOUND_RETURNS dihapus. InboundController::returnsIndex/processReturn
+  yang masih dummy ikut dihapus, bukan dibiarkan.
 
 FASE 8 — Billing (Penagihan)
   Migration: customer_billings, billing_payments
