@@ -2416,9 +2416,64 @@ FASE 11 — Dashboard & Laporan
     tetapi nomor tiga di berkas Excel, tanpa cara menebak mana yang benar.
     Dikunci test yang membandingkan kedua urutan.
 
-FASE 12 — E-POD (Electronic Proof of Delivery)
-  Ruang lingkup: pastikan EpodController::show/confirm terhubung ke
-  delivery_proofs (Fase 6) secara konsisten dari sisi customer-facing.
+FASE 12 — E-POD (Electronic Proof of Delivery) — SELESAI
+  Berkas: migrasi arrival_photo_* pada delivery_notes,
+          App\Support\Outbound\ArrivalPhoto, EpodController::confirm,
+          Shipment::confirmDelivery, driver/epod.blade.php,
+          DeliveryController::arrivalPhoto, ShipmentTest
+
+  LUBANG YANG DITUTUP. Supir bisa menekan "Barang Sudah Sampai" TANPA
+  lampiran apa pun. Tidak ada yang membedakan barang yang benar-benar
+  diterima pelanggan dari barang yang masih ada di bak mobil, selain
+  perkataan supir yang hari itu mungkin bukan karyawan perusahaan ini.
+
+  KAMERA DI DALAM HALAMAN, BUKAN PEMILIH BERKAS (permintaan pemilik produk:
+  "foto live saat itu bukan melalui lampiran file"). getUserMedia membuka
+  kamera belakang di dalam halaman, gambarnya dibentuk dari cuplikan kamera
+  lalu dijejalkan ke input berkas lewat DataTransfer. Dikecilkan ke maks
+  1600px: supir sering bersinyal seadanya, dan foto 12 MP yang gagal
+  terkirim sama tidak bergunanya dengan tidak ada foto.
+
+  TOMBOL KIRIM MATI SAMPAI ADA FOTONYA — bukan menampilkan galat setelah
+  ditekan, karena saat itu supir sudah telanjur mengira pekerjaannya selesai.
+
+  APA YANG TIDAK BISA DIJAMIN, DAN ITU DIAKUI. Tidak ada teknologi web yang
+  bisa membuktikan sebuah gambar berasal dari kamera; peramban tidak
+  menandatangani jepretan. Karena itu TIDAK ada label "terverifikasi
+  kamera" — yang ada kolom arrival_photo_source ('camera' | 'file') yang
+  menyimpan asalnya apa adanya, dan waktunya diambil dari jam SERVER (jam HP
+  supir bisa disetel mundur). Layar Surat Jalan menampilkan keduanya
+  berbeda: "Dijepret di lokasi" (hijau) vs "Dari berkas HP" (kuning).
+
+  JALUR CADANGAN SENGAJA ADA. Kamera dalam halaman hanya hidup di HTTPS dan
+  setelah izin diberikan. Tanpa jalur cadangan (input capture=environment),
+  satu penolakan izin di HP supir membuat barang yang sudah diterima
+  pelanggan menggantung selamanya di status "dalam pengiriman". Menghukum
+  seluruh alur karena satu izin peramban bukan pengerasan, itu kerusakan.
+  ==> CATATAN GO-LIVE: di http biasa, SELURUH konfirmasi jatuh ke jalur
+      cadangan. HTTPS wajib sebelum ini benar-benar berlaku sebagaimana
+      dimaksud.
+
+  TIDAK DITITIPKAN KE delivery_proofs, dan itu penting. Tabel itu memuat
+  foto Surat Jalan BERTANDA TANGAN milik Sales yang diverifikasi Logistik,
+  dan CustomerRejection::bolehMelapor() membuka formulir penolakan pelanggan
+  hanya kalau ada barisnya. Menaruh foto supir di sana akan membuat pesanan
+  terlihat sudah berbukti padahal Surat Jalan bertanda tangannya belum ada.
+
+  ATURANNYA DI Shipment::confirmDelivery, BUKAN HANYA DI CONTROLLER —
+  halaman supir bukan satu-satunya pintu ke metode itu. Ditambah CHECK
+  constraint di basis data (status <> 'delivered' OR foto IS NOT NULL)
+  dengan NOT VALID: pengiriman lama yang sudah terlanjur dikonfirmasi
+  memang tidak punya fotonya dan tidak akan pernah punya. Memaksa
+  memvalidasinya berarti memilih antara migrasi yang gagal di produksi atau
+  MENGARANG foto untuk pengiriman lama.
+
+  FOTO KONFIRMASI YANG DITOLAK IKUT DIBUANG. Berkas yatim yang tidak
+  ditunjuk baris mana pun menumpuk diam-diam sampai disknya penuh.
+
+  DISAJIKAN LEWAT RUTE BERIZIN (wms.delivery.arrival-photo), bukan folder
+  publik, dan tetap lewat WarehouseScope::assert — gambar isi gudang
+  pelanggan gudang lain sama bocornya dengan tabelnya.
 
 FASE 13 — Pengujian End-to-End & Pengerasan
   Jalankan 5 alur end-to-end penuh (order -> inbound -> putaway -> outbound
