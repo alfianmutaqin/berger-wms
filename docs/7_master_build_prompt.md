@@ -2164,11 +2164,70 @@ FASE 9 — Notifikasi & Log Aktivitas — SELESAI
   halaman detail Sales yang membacanya dari kolom waktu pesanan itu
   sendiri. Tabel terpisah berarti dua sumber kebenaran untuk satu keadaan.
 
-FASE 10 — Pengaturan Sistem & Penomoran Dokumen
-  Migration: system_settings, document_sequences
-  Ruang lingkup: wire app/Http/Controllers/Wms/AdminController::sequence()
-  (view resources/views/wms/admin/sequence.blade.php sudah ada, masih dummy)
-  ke tabel document_sequences untuk penomoran otomatis SJ/faktur/dsb.
+FASE 10 — Pengaturan Sistem & Penomoran Dokumen — SELESAI
+  Berkas: system_settings (migrasi + model + App\Support\Settings),
+          AdminController::{settings,updateSettings,sequence},
+          wms/admin/{settings,sequence}.blade.php, SystemSettingsTest
+
+  DUA HALAMAN, DUA SIFAT YANG SENGAJA BERBEDA.
+
+  SETELAN OPERASIONAL BISA DIUBAH — dan sengaja HANYA LIMA. Tiap setelan
+  adalah satu keadaan lagi yang harus dipikirkan setiap kali ada yang aneh:
+  "ini bug, atau memang begitu setelannya?". Yang masuk wajib lolos tiga
+  ujian sekaligus: (1) keputusan BISNIS bukan teknis, (2) nilainya memang
+  berubah dari waktu ke waktu, (3) salah isi TIDAK merusak sistem — cuma
+  membuat perilakunya berbeda.
+
+    jam cutoff order (15) · ambang peringatan kedaluwarsa (90 hari) ·
+    ambang karantina hampir lepas (7 hari) · maksimal foto bukti (3) ·
+    umur simpan log aktivitas (90 hari)
+
+  PENOMORAN DOKUMEN JADI BACA-SAJA, dan itu keputusan rancangan — bukan
+  pekerjaan yang belum selesai. Halaman lamanya menyodorkan kolom prefix
+  ("PO-{YYYY}-{MM}-") dan "nomor urut berikutnya" (146) yang bisa diketik;
+  nilainya karangan yang bahkan tidak cocok dengan format sungguhan
+  (PO260909001), dan tombolnya tidak menyimpan apa pun. Kebohongan ketiga
+  sejenis simulateUploadBukti() dan lonceng palsu. Membuatnya BENAR-BENAR
+  bisa diubah justru lebih berbahaya:
+
+    - Mengganti awalan di tengah jalan MEMECAH RIWAYAT jadi dua bentuk yang
+      tidak bisa dicari sekaligus. DocumentNumber::countToday() mencari
+      dengan LIKE pada prefiksnya; begitu berubah, hitungannya salah tanpa
+      suara.
+    - Menggeser nomor urut MUNDUR langsung menghasilkan nomor kembar.
+      document_sequences punya kunci unik, jadi akibatnya bukan data kotor
+      melainkan pembuatan pesanan yang BERHENTI TOTAL untuk semua orang.
+
+  Tidak ada rute POST untuk /admin/sequence, dan test menguncinya (405).
+  Yang ditampilkan keadaan apa adanya: format sungguhan yang dibaca dari
+  DocumentNumber (bukan diketik ulang di Blade), nomor terakhir yang
+  benar-benar terpakai, dan ALASAN kenapa tidak bisa diubah — supaya tidak
+  ada yang mencari tombol yang memang sengaja tidak dibuat.
+
+  SUPER ADMIN SAJA (Permission::ADMIN_SETTINGS). Manager ikut di ADMIN_USERS
+  dan ADMIN_SEQUENCE tetapi TIDAK di sini, dan alasannya cakupan bukan
+  kepercayaan: setelan ini berlaku seluruh perusahaan, sementara seluruh
+  kewenangan Manager dibatasi ke gudangnya sendiri. Manager Karawang yang
+  menggeser jam cutoff mengubah jam kerja Sales Pekanbaru yang tidak pernah
+  ia temui.
+
+  NILAI BAWAAN TINGGAL DI KODE, tabelnya hanya menyimpan yang SUDAH DIUBAH.
+  Akibat yang disengaja: setelan baru langsung hidup tanpa migrasi pengisi,
+  dan setelan yang dihapus dari daftar berhenti terbaca walau barisnya masih
+  ada. Konstanta lama (ShelfLife::WARNING_DAYS, DeliveryProof::MAKS_FOTO,
+  AdminDashboard::AMBANG_*, ActivityLog::UMUR_SIMPAN_HARI) DIGANTI metode
+  yang membaca Settings — bukan disandingkan, supaya tidak ada dua angka
+  yang suatu hari berbeda pendapat tentang hal yang sama.
+
+  SATU BARIS PER SETELAN, bukan satu baris JSON berisi semuanya: dua orang
+  yang menyimpan setelan berbeda pada detik yang sama akan saling menimpa,
+  dan yang kalah tidak akan pernah tahu setelannya hilang.
+
+  PERUBAHANNYA TERCATAT DI LOG AKTIVITAS (Fase 9) — termasuk perubahan umur
+  simpan log itu sendiri. Setelan yang menentukan berapa lama jejak disimpan
+  justru yang paling perlu meninggalkan jejak saat diubah. Menyimpan tanpa
+  mengubah apa pun TIDAK mencatat: kalau tidak, riwayatnya penuh oleh
+  perubahan yang tidak pernah terjadi.
 
 FASE 11 — Dashboard & Laporan
   Ruang lingkup: docs/1 §6.7. Wire DashboardController (admin/produksi/
