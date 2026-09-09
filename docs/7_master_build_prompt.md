@@ -2090,11 +2090,79 @@ FASE 8 — Billing (Penagihan)
   customer = PERINGATAN VISUAL saja, BUKAN blokir order (lihat docs/1 §6.6,
   keputusan yang sudah dikonfirmasi user sebelumnya).
 
-FASE 9 — Tracking, Notifikasi Real-time, Audit Log
-  Migration: order_trackings, notifications, audit_logs
-  Ruang lingkup: docs/1 §6.8, §6.9. Wire NotificationController + broadcast
-  via Soketi (sudah jalan di docker-compose). Audit log mencatat aksi
-  sensitif (create/update/deactivate user, approve order, dst).
+FASE 9 — Notifikasi & Log Aktivitas — SELESAI
+  Berkas: notifications (migrasi + model + App\Support\Notifier),
+          App\Console\Commands\PurgeActivityLogs, NotificationController,
+          partials/navbar-top.blade.php, wms/notifications.blade.php,
+          NotificationTest
+
+  TABEL audit_logs TIDAK DIBUAT — keputusan pemilik produk, menyimpang dari
+  rencana awal. Sistem sudah punya activity_logs yang append-only, sudah
+  dipakai, dan sudah punya halaman audit khusus Super Admin. Tabel kedua
+  dengan tujuan sama berarti dua tempat yang harus dilihat orang saat
+  menelusuri SATU kejadian, dan suatu hari salah satunya akan ketinggalan.
+  Yang dilakukan: MEMPERLUAS cakupan activity_logs.
+
+  CAKUPANNYA DULU HANYA 6 DARI 23 CONTROLLER. Yang tercatat cuma urusan
+  stok, booking, stocktake, picking, dan retur — sementara persetujuan
+  pesanan, input produksi, put-away, verifikasi, pengiriman, bukti Surat
+  Jalan, transfer gudang, pengelolaan akun, dan master data tidak
+  meninggalkan jejak sama sekali. Ditambahkan 23 nama tindakan baru.
+
+  RETENSI 90 HARI — keputusan pemilik produk. Angkanya di
+  ActivityLog::UMUR_SIMPAN_HARI supaya halaman log bisa MENGATAKANNYA:
+  orang yang mencari kejadian empat bulan lalu berhak tahu bahwa yang ia
+  cari memang sudah dibuang, bukan menyimpulkan sendiri bahwa kejadiannya
+  tidak pernah tercatat.
+
+  PEMBERSIHAN TIDAK LEWAT MODEL, dan itu bukan kebetulan. booted() melempar
+  RuntimeException pada setiap delete; perintah activity:purge menembus
+  lewat query builder sehingga ia HANYA bisa menghapus menurut UMUR. Tidak
+  ada jalan menghapus satu baris tertentu dari mana pun di sistem — yang
+  dijaga bukan pembersihan berkala, melainkan orang yang menghilangkan
+  jejak dirinya sendiri. Dipotong per 1000 lewat subquery id, karena
+  PostgreSQL tidak mengenal DELETE ... LIMIT dan Laravel diam saja
+  menjatuhkan limitnya.
+
+  NOTIFIKASI = LONCENG SAJA, bukan Soketi. Keputusan pemilik produk.
+  WebSocket berarti satu proses lagi yang harus dijaga hidup di produksi,
+  dan yang dibutuhkan cuma "ada yang perlu saya kerjakan" — itu tidak
+  menuntut ketepatan detik.
+
+  LONCENG BUKAN LOG, dan keduanya sengaja tidak digabung. Log mencatat
+  SEMUA tindakan dan dibaca Super Admin saat menelusuri sesuatu yang sudah
+  terjadi; notifikasi hanya yang menuntut orang LAIN bergerak, dibaca
+  pemiliknya sendiri, dan HABIS begitu ditindaklanjuti. Menyamakan keduanya
+  berarti lonceng berbunyi untuk setiap perubahan master data, dan orang
+  berhenti membukanya dalam seminggu.
+
+  PENERIMA DIPILIH LEWAT Permission::MATRIX, bukan nama peran. Menuliskan
+  "kirim ke logistik dan manager" di Notifier berarti dua daftar yang harus
+  sepakat, dan suatu hari peran baru ditambahkan di satu tempat saja — lalu
+  ada orang yang halamannya bisa dibuka tetapi loncengnya tidak pernah
+  berbunyi. Batas gudang ikut berlaku; akun tanpa gudang (Super Admin)
+  menerima semuanya.
+
+  TIDAK MENGIRIM KE DIRI SENDIRI. Yang baru menekan tombolnya sudah melihat
+  pesan hijau di layarnya; lonceng untuk pekerjaan sendiri hanya melatih
+  orang mengabaikan loncengnya.
+
+  RUTENYA DI LUAR KEDUA PORTAL, alasan yang sama persis dengan /profile.
+  Sebelumnya di dalam prefix /wms, sehingga Tim Sales — yang dipagari
+  keluar oleh middleware portal:wms — tidak akan pernah bisa membuka
+  loncengnya sendiri, padahal merekalah yang paling butuh diberi tahu
+  pesanannya disetujui atau ditolak.
+
+  DUA KEBOHONGAN AKTIF DIHAPUS, sejenis dengan simulateUploadBukti() di
+  Fase 11. Lonceng di navbar berisi dua kartu karangan dengan titik merah
+  yang menyala selamanya, dan tombol "Tandai Semua Dibaca" hanya
+  memunculkan jendela "Berhasil" tanpa menyentuh apa pun — loncengnya tetap
+  merah sesudah ditekan. Titik merah yang tidak pernah padam adalah titik
+  merah yang berhenti dibaca orang.
+
+  order_trackings TIDAK DIBUAT: status pesanan sudah punya stepper di
+  halaman detail Sales yang membacanya dari kolom waktu pesanan itu
+  sendiri. Tabel terpisah berarti dua sumber kebenaran untuk satu keadaan.
 
 FASE 10 — Pengaturan Sistem & Penomoran Dokumen
   Migration: system_settings, document_sequences
