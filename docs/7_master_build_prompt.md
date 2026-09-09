@@ -2345,7 +2345,76 @@ FASE 11 — Dashboard & Laporan
     Rute /sales/dashboard yang tadinya closure `return view(...)` di
     routes/web.php kini punya controller sendiri.
 
-  TAHAP 4 — LAPORAN — BELUM. ReportController masih dummy 13 baris.
+  TAHAP 4 — LAPORAN & EKSPOR — SELESAI
+  Berkas: App\Support\Reporting\{ReportCatalog,ReportRunner},
+          App\Support\Export\XlsxWriter, ReportController,
+          wms/reports/{index,show}.blade.php, ReportTest
+
+    KEBOHONGAN AKTIF KEEMPAT DIHAPUS, setelah simulateUploadBukti(), lonceng
+    palsu, dan penomoran dokumen yang bisa diketik. Halaman lamanya memajang
+    empat kartu dengan DELAPAN tombol unduh yang seluruhnya hanya memanggil
+    alert('Mempersiapkan File Excel...'), dan rentang tanggalnya diketik
+    tangan di dalam Blade (2026-08-01 s/d 2026-08-31) tanpa tersambung ke
+    apa pun. Dikunci assertDontSee di ReportTest.
+
+    DELAPAN LAPORAN, satu registri (ReportCatalog) yang dibaca kartu, judul
+    berkas, izin, dan penjelasan sekaligus — supaya kartunya tidak pernah
+    berkata "berdasarkan tanggal kirim" sementara query-nya menyaring
+    tanggal selesai:
+      penjualan-selesai · pesanan-outstanding · produk-terlaris ·
+      pelanggan-teratas · kinerja-sales · pengiriman · posisi-stok ·
+      pergerakan-stok
+
+    SEMUANYA KUANTITAS, BUKAN RUPIAH, dan itu DIKATAKAN di layar. Tidak ada
+    satu pun kolom harga di seluruh basis data ini, jadi "penjualan" berarti
+    barang yang keluar. Dibiarkan tidak dikatakan, yang membuka berkasnya
+    akan mencari kolom nilai dan menyimpulkan datanya rusak.
+
+    BERKALA vs POTRET, dan bedanya ditegakkan sampai ke berkasnya. Laporan
+    potret (outstanding, posisi stok) TIDAK menggambar kolom tanggal sama
+    sekali — bukan menggambarnya dalam keadaan mati — dan tanggal yang tetap
+    dipaksakan lewat URL dibuang di controller. Berkas bertuliskan "Periode
+    1-30 September" yang isinya keadaan hari ini adalah salah paham yang
+    paling sulit dibantah, karena keterangannya tertulis di berkasnya
+    sendiri.
+
+    PRATINJAU DULU, BARU UNDUH. 25 baris di layar beserta JUMLAH BARIS
+    SEBENARNYA. Mengunduh dengan mata tertutup lalu mendapati isinya kosong
+    atau salah rentang adalah putaran mahal — apalagi kalau berkasnya sudah
+    terlanjur diteruskan. Layar dan berkas dihitung METODE YANG SAMA; yang
+    berbeda hanya batas barisnya (25 vs 20.000).
+
+    HANYA XLSX, TIDAK ADA PDF. Tombol PDF lama juga cuma alert(), jadi tidak
+    ada yang hilang — tetapi PDF memang bentuk yang salah: yang mengunduh
+    laporan penjualan ingin menyaring dan mem-pivot, dan angka tidak bisa
+    dikeluarkan lagi dari PDF. Angka ditulis bertipe NUMERIC, sisanya
+    DIPAKSA teks (batch "0012" kehilangan nolnya kalau ditebak Excel).
+
+    RENTANG 'sampai' DINAIKKAN KE AKHIR HARI. Tanpa itu memilih 1-30
+    September membuang seluruh isi tanggal 30, dan laporannya tetap terlihat
+    wajar — cuma kurang sehari. Rentang terbalik DILURUSKAN, bukan ditolak.
+
+    UNDUHAN TERCATAT (ActivityLog::REPORT_EXPORT). Satu berkas berisi data
+    pelanggan beserta volume pembeliannya bisa beredar selamanya setelah
+    keluar sekali. Yang dicatat bukan pembacaan di layar, melainkan momen
+    datanya MENINGGALKAN sistem. Berkas yang terpotong pada 20.000 baris
+    mengaku di dalam berkasnya sendiri, bukan cuma di layar.
+
+    BATAS GUDANG BERLAKU DI BERKAS JUGA — dikunci test tersendiri. Kebocoran
+    lewat Excel tidak bisa ditarik kembali.
+
+    IZINNYA SAMA SEMUA (REPORTS_VIEW) dan itu disengaja. Sempat terpikir
+    menjaga laporan stok dengan INVENTORY_VIEW; itu akan jadi pembatasan
+    PALSU karena ketiga peran yang bisa membuka halaman ini sudah
+    memegangnya. Kolom `izin` tetap ada dan sungguh diperiksa, jadi
+    mempersempit satu laporan cukup mengganti satu nilai.
+
+    PAPAN PERINGKAT MASUK DASHBOARD (kartu 'terlaris': 5 produk + 5
+    pelanggan, 30 hari, izin REPORTS_VIEW). Angkanya DIHITUNG ULANG LEWAT
+    ReportRunner yang sama, bukan query sendiri — kalau tidak, satu
+    perbedaan kecil sudah cukup membuat sebuah produk nomor satu di layar
+    tetapi nomor tiga di berkas Excel, tanpa cara menebak mana yang benar.
+    Dikunci test yang membandingkan kedua urutan.
 
 FASE 12 — E-POD (Electronic Proof of Delivery)
   Ruang lingkup: pastikan EpodController::show/confirm terhubung ke
