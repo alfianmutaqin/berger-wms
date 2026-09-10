@@ -2416,6 +2416,69 @@ FASE 11 — Dashboard & Laporan
     tetapi nomor tiga di berkas Excel, tanpa cara menebak mana yang benar.
     Dikunci test yang membandingkan kedua urutan.
 
+TAMBAHAN — BUAT PESANAN JALUR INTERNAL (Admin & Manager) — SELESAI
+  Berkas: migrasi placed_by/placed_reason pada sales_orders,
+          App\Support\Outbound\OrderComposer, InternalOrderController,
+          InternalOrderRequest, wms/outbound/internal-order.blade.php,
+          Permission::OUTBOUND_ORDER_INTERNAL, InternalOrderTest
+
+  PERMINTAAN PEMILIK PRODUK: "fitur pemesanan seperti Sales tapi hanya admin
+  dan manager yang bisa mengakses, untuk menghindari hal-hal tertentu dari
+  sales".
+
+  MELANGGAR PRD §5.2 DENGAN SENGAJA, dan itu diberitahukan lebih dulu: di
+  sana "Akses Portal Sales (Buat PO)" bernilai ❌ untuk SEMUA peran
+  Warehouse/Admin. Yang dibangun BUKAN celah ke portal itu — middleware
+  portal:sales tetap menolak Admin, dan ada test yang menguncinya. Ini pintu
+  TERPISAH di sisi WMS.
+
+  DUA PERTANYAAN DITANYAKAN LEBIH DULU karena jawabannya mengubah bentuk
+  fiturnya, dan keduanya dijawab pemilik produk:
+    1. Atas nama siapa?      -> DIPILIHKAN SALES-NYA.
+    2. Boleh menyetujui
+       pesanannya sendiri?   -> BOLEH.
+
+  Keberatan atas jawaban ke-2 disampaikan sebelum ditanyakan (satu orang
+  memegang seluruh rantai) dan pemilik produk tetap memilihnya. Karena
+  pemisahan pembuat–penyetuju dengan demikian TIDAK LAGI menjaga apa pun,
+  jejaknya dikuatkan sebagai satu-satunya kontrol yang tersisa:
+
+    - sales_orders.placed_by    siapa yang MENGETIK. NULL = Sales sendiri.
+    - sales_orders.placed_reason alasan wajib, min 10 huruf.
+    - CHECK placed_by <> user_id (mewakili diri sendiri itu kebisingan)
+      dan CHECK keduanya hidup-mati bersama — ditegakkan BASIS DATA, bukan
+      cuma PHP, supaya jalur baru yang lupa memanggilnya tetap ditolak.
+    - ActivityLog::ORDER_PLACED_INTERNAL, jenis TERSENDIRI. Digabung ke
+      ORDER_SUBMIT, yang jarang tenggelam di antara yang biasa dan penyaring
+      log tidak bisa memisahkannya lagi.
+    - SALES-NYA DIBERI TAHU lewat lonceng, dan alasannya tertulis di layar
+      detail pesanannya. Ia satu-satunya orang di luar rantai yang bisa
+      menyadari kalau ada yang tidak beres; pesanan yang muncul tanpa
+      penjelasan justru membuatnya diam.
+    - Layar Terima Pesanan menandai "dibuatkan" DI SEBELAH nama Sales,
+      bukan di kotak terpisah: yang membaca baris itu sedang menyimpulkan
+      "ini pesanan si A", dan koreksinya harus datang di detik yang sama.
+
+  user_id TIDAK DITIMPA. Godaan termudahnya mengisi user_id dengan Sales-nya
+  lalu selesai — hasilnya catatan yang berbohong di setiap layar, setiap
+  laporan, dan setiap penelusuran sengketa.
+
+  LOGISTIK SENGAJA TIDAK DAPAT (izin sendiri, bukan menumpang
+  OUTBOUND_APPROVAL). Merekalah yang menilai pesanan.
+
+  CUTOFF TETAP BERLAKU. Cutoff ada untuk perencanaan picking, bukan untuk
+  mendisiplinkan Sales; membebaskan jalur ini darinya membuka cara
+  mengacaukan rencana picking yang tidak pernah disepakati — dan karena
+  jalur ini tidak lewat Sales, tidak ada yang akan protes.
+
+  TIDAK ADA UBAH/HAPUS di jalur ini: menyunting pesanan yang tercatat atas
+  nama orang lain tanpa orang itu tahu jauh melewati yang diminta.
+
+  OrderComposer LAHIR DARI SINI. Begitu ada dua pintu ke pembentukan
+  pesanan, cara membentuknya diangkat ke satu tempat — kalau tidak, kapan
+  SLA mulai dihitung dan siapa yang diberi tahu akan berbeda pendapat
+  suatu hari. SalesOrderController ikut memakainya.
+
 FASE 12 — E-POD (Electronic Proof of Delivery) — SELESAI
   Berkas: migrasi arrival_photo_* pada delivery_notes,
           App\Support\Outbound\ArrivalPhoto, EpodController::confirm,
