@@ -298,9 +298,9 @@ FASE 2 — Master Data: Produk & Pelanggan
       tanpa batas) — dipertahankan hanya sebagai jejak, jangan diikuti.
       ~~Satu bin boleh memuat BEBERAPA produk dan BEBERAPA batch sekaligus.
       Jangan tambahkan unique constraint pada location_id.~~
-    - Koreksi stock opname WAJIB menyertakan alasan; dicatat sebagai
+    - Koreksi stocktake WAJIB menyertakan alasan; dicatat sebagai
       stock_movements bertipe ADJUSTMENT dengan notes wajib + user_id.
-    - Denah gudang adalah antarmuka opname-nya: tiap kotak bin sudah punya
+    - Denah gudang adalah antarmuka stocktake-nya: tiap kotak bin sudah punya
       slot indikator keterisian yang tinggal diisi begitu inventory_stocks
       dibangun. Lihat komentar "Slot isi bin (FASE 4)" di
       resources/views/wms/master/locations-map.blade.php.
@@ -491,6 +491,324 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
     - app/Data/MockInventory.php DIHAPUS — InventoryController tidak lagi
       memakai data karangan di session.
 
+  ============================================================
+  SUSULAN: DENAH BERISI & STOK OPNAME (permintaan pemilik produk, bukan PRD)
+  Migration: create_stock_takes_table
+  Berkas: App\Models\{StockTake,StockTakeItem},
+          App\Support\Inventory\StockTakeRun,
+          App\Http\Controllers\Wms\StockTakeController,
+          LocationController::{map,contents}
+
+    DENAH. Halaman denah sejak Fase 4 hanya kerangka: kotak beralamat tanpa
+    keterangan isi, dengan catatan bahwa isinya menyusul setelah Inventory
+    dibangun. Sekarang tiap kotak menuliskan jumlah unit dan mengklik kotaknya
+    membuka rincian batch. Angkanya qty_available + qty_allocated: yang dilihat
+    orang saat berdiri di depan rak adalah barang FISIK, dan yang sudah
+    dicadangkan tetap berdiri di sana. Rinciannya lewat endpoint terpisah —
+    ~2.264 kotak per gudang, dan rincian batch di tiap kotak membengkakkan
+    halaman demi data yang hampir tidak pernah dibuka.
+
+    ISTILAH: "bin" dihapus dari layar. Satu kotak beralamat (B-01-08) disebut
+    RAK — itulah yang ditulis operator dan yang tertera di layar picking —
+    dan kumpulannya (B-01) disebut DERET. Tanpa kata kedua, "Total Rak 2.264"
+    dan "Jumlah Rak 29" berdiri bersebelahan tanpa ada yang tahu bedanya.
+
+    STOK OPNAME. Sebulan atau tiga bulan sekali, mencocokkan angka sistem
+    dengan barang di rak. Tiga keputusan yang membentuk seluruh rancangannya:
+
+    1. ANGKA SISTEM DIBEKUKAN SAAT SESI DIBUKA. Menghitung satu gudang makan
+       waktu berjam-jam sampai berhari-hari, dan selama itu barang tetap
+       keluar-masuk. Kalau pembandingnya angka "sekarang", tiap pengiriman yang
+       berangkat di tengah penghitungan terbaca sebagai selisih stocktake —
+       padahal ia pergerakan yang benar dan sudah tercatat rapi di ledger.
+
+    2. KOREKSINYA DITERAPKAN SEBAGAI SELISIH, BUKAN PENIMPAAN. Yang ditambahkan
+       ke stok saat pengesahan adalah (fisik - beku), bukan angka fisiknya
+       langsung. Barang yang sah berangkat SETELAH raknya dihitung karena itu
+       tidak dihidupkan kembali oleh laporan stocktake. Inilah yang membuat stocktake
+       tidak perlu membekukan operasi gudang — dan bagian yang paling mudah
+       dirusak oleh "sederhanakan saja jadi set qty". DIJAGA TEST khusus.
+
+    3. STOK BARU BERUBAH SAAT LAPORAN DISAHKAN (permintaan pemilik produk:
+       "stok terbaru aktif setelah laporan dicetak"). Selama sesi berjalan
+       tidak satu pun angka stok tersentuh; hasil hitungan menumpuk sebagai
+       catatan. Pengesahan membawa langsung ke halaman laporan yang membuka
+       dialog cetak, sehingga terbitnya laporan dan berlakunya stok baru adalah
+       satu peristiwa.
+
+    RAK YANG TIDAK SEMPAT DIHITUNG TIDAK DISENTUH, dan jumlahnya ditulis di
+    laporan. Menganggapnya kosong berarti satu rak yang terlewat langsung
+    menghapus stoknya dari sistem — kerusakan yang jauh lebih mahal daripada
+    laporan yang mengaku cakupannya belum penuh.
+
+    HITUNGAN DI BAWAH JUMLAH TERALOKASI DITOLAK saat dimasukkan. Kekurangan
+    sebanyak itu menyentuh barang yang sudah dijanjikan ke pelanggan, dan itu
+    keputusan orang — batalkan alokasinya atau perbaiki pesanannya — bukan
+    sesuatu yang boleh diselesaikan diam-diam oleh pengesahan laporan.
+
+    DUA IZIN, sengaja dipisah: stocktake.count (sampai Operator Gudang, karena
+    merekalah yang berdiri di depan rak; tidak mengubah stok sama sekali) dan
+    stocktake.manage (Manager/Super Admin — membuka sesi dan mengesahkan).
+    Orang yang salah menghitung tidak boleh sekaligus mengesahkan koreksi atas
+    kesalahannya sendiri.
+
+    MENU SENDIRI, BUKAN MENUMPANG DENAH. Denah menjawab "di mana barangnya" dan
+    boleh dibuka kapan saja; stocktake adalah PROSES bertahap dengan awal, akhir,
+    dan penanggung jawab. Yang dipinjam dari denah adalah SUSUNANNYA: layar
+    penghitungan dikelompokkan deret -> rak, sehingga yang menghitung membaca
+    layar dengan urutan yang sama seperti saat ia menyusuri gudang.
+
+    BELUM TERMASUK: barang yang ditemukan di rak tetapi TIDAK punya baris stok
+    sama sekali di sistem. Membuat baris baru menuntut tanggal produksi dan
+    kedaluwarsa yang benar supaya FIFO tidak rusak, dan itu keputusan yang
+    lebih baik lewat jalur penambahan stok ke rak yang sudah ada.
+
+    MENYIMPAN TANPA MEMUAT ULANG HALAMAN (temuan lapangan). Versi pertama
+    memakai submit formulir biasa, sehingga tiap centang memuat ulang halaman
+    dan melempar orang yang sudah menghitung sampai baris terakhir kembali ke
+    puncak — lalu ia harus menggulir turun lagi mencari tempatnya. Pada sesi
+    berisi ribuan baris itu bukan gangguan kecil; itu yang membuat orang
+    berhenti memakai fiturnya.
+
+    count() karena itu menjawab DUA bentuk: JSON untuk layar penghitungan, dan
+    redirect biasa kalau disubmit sebagai formulir. Formulirnya tetap formulir
+    sungguhan, jadi JavaScript yang gagal dimuat hanya mengembalikan perilaku
+    muat ulang — bukan tombol yang tidak melakukan apa-apa di depan operator
+    yang sedang berdiri di rak. Penolakan aturan stocktake ditempel DI BARISNYA,
+    bukan sebagai peringatan di puncak halaman yang tidak akan terlihat oleh
+    orang yang sedang berada di baris ke-800.
+
+    DIUJI: tests/Feature/Wms/StockTakeTest.php (25 test),
+           tests/Feature/Wms/WarehouseMapContentsTest.php (12 test).
+
+  SUSULAN: KIRIM ULANG OUTSTANDING (permintaan pemilik produk)
+  ============================================================
+  Migration: 2026_09_29_000001_create_sales_order_reshipments_table
+  Berkas: SalesOrderReshipment, App\Support\Outbound\Reshipment,
+          OutstandingController::reship, wms/outbound/outstanding.blade.php
+
+  NOMOR SO SAMA, SURAT JALAN BARU. Pesanan yang berangkat sebagian tetap
+  menjadi kewajiban perusahaan. Begitu stoknya ada, sisanya dikirim menyusul
+  dengan nomor SO YANG SAMA — pesanannya memang itu juga — lewat Surat Jalan
+  BARU, karena SJ menerangkan satu kali keberangkatan kendaraan, bukan satu
+  pesanan.
+
+  MEMBUAT PESANAN BARU ADALAH JALAN YANG SALAH, dan menggoda karena terlihat
+  lebih sederhana: satu kewajiban akan terbaca sebagai dua pesanan, penjualan
+  terhitung dua kali, dan pelanggan menerima dua nomor SO untuk satu
+  pembelian.
+
+  TIDAK ADA MESIN BARU. Sistem sudah bisa memicking satu pesanan lebih dari
+  sekali sejak koreksi "pesanan yang dipicking lebih dari satu kali"
+  (PickingListItem::scopeForOrderRound). Reshipment::open() hanya MEMBUKA
+  putaran berikutnya: picking_list_id dikosongkan, status kembali APPROVED,
+  shipped_at dinolkan, lalu kekurangannya dialokasikan lewat FifoAllocator.
+  Seluruh alur picking & pengiriman sesudahnya berjalan apa adanya.
+
+  picking_list_id WAJIB DIKOSONGKAN. Dibiarkan terisi, dua hal rusak diam-
+  diam: PickingListBuilder menolak pesanan ini masuk daftar baru (ia
+  menyaring picking_list_id NULL), dan PendingAllocationFiller melewatinya
+  sehingga stok yang datang belakangan tidak pernah mengisinya. Tidak ada
+  galat apa pun — pesanannya cuma hilang dari antrean.
+
+  HANYA DARI PUTARAN YANG SUDAH SELESAI (shipping/proof/completed/
+  completed_billing). Membukanya di atas pesanan yang masih approved/picking/
+  siap-kirim akan mencadangkan stok DUA KALI untuk kekurangan yang sama.
+
+  SEBANYAK YANG ADA, sama seperti penerimaan pesanan. Stok yang cuma cukup
+  sebagian tetap dicadangkan dan sisanya TETAP outstanding — bisa dikirim
+  ulang lagi nanti. Yang tidak kebagian DISEBUT di pesan suksesnya.
+
+  qty_shipped MENUMPUK ANTAR PUTARAN (Shipment::catatQtyTerkirim). Dahulu
+  ditimpa, dan itu benar selama satu pesanan hanya berangkat sekali. Sejak
+  ada pengiriman ulang, SJ kedua akan MENGHAPUS catatan keberangkatan
+  pertama: pesanan 10 yang berangkat 6 lalu menyusul 4 tercatat "terkirim 4,
+  kurang 6" — terbalik, dan pelanggan ditagih barang yang sudah diterimanya.
+  Aman dari hitungan ganda karena satu SJ hanya bisa berangkat sekali.
+
+  RIWAYAT PUTARAN DI TABEL SENDIRI, bukan kolom di sales_orders: pengiriman
+  ulang bisa terjadi berkali-kali (30 menyusul minggu ini, 20 bulan depan),
+  dan kolom hanya bisa menyimpan yang terakhir. Append-only.
+
+  GATE-nya OUTBOUND_APPROVAL, bukan izin baru: membuka putaran mencadangkan
+  stok persis seperti menerima pesanan.
+
+  DIUJI: tests/Feature/Wms/OutstandingReshipmentTest.php (12 test).
+
+  SUSULAN: AUDIT INVENTORY (permintaan pemilik produk)
+  ============================================================
+  Migration: 2026_09_27_000001_create_activity_logs_table
+  Berkas: App\Models\ActivityLog, App\Support\Activity,
+          Wms\ActivityLogController, wms/admin/activity-log.
+
+  TEMUAN 1 — "STOK TIDAK TERBACA" TERNYATA BEDA GUDANG. Stok ditambahkan
+  Super Admin ke WH-02 Pekanbaru, sementara seluruh pesanan & booking ada di
+  WH-01 Karawang. Sistemnya benar (stok terikat gudang), TAMPILANNYA yang
+  salah: layar hanya menulis angka nol, tanpa membedakan "produk ini memang
+  habis" dari "produknya ada, cuma di gudang sebelah". Ditambahkan
+  FifoAllocator::elsewhereFor() — dipakai layar booking & terima pesanan
+  UNTUK MENJELASKAN saja, tidak pernah ikut dialokasikan.
+
+  TEMUAN 2 — PEMINDAHAN RAK MEMBUANG PENANDA BATCH. InventoryController::
+  transfer() menyalin status & ddp_reason ke baris tujuan tetapi TIDAK
+  menyalin penanda karantina/quality issue/dahulukan keluar. Akibatnya
+  separuh batch bertanda dan separuhnya tidak — melanggar "satu batch, satu
+  keputusan". Lebih buruk: metadata karantina yang tidak ikut membuat
+  CHECK inventory_stocks_karantina_lengkap menolak baris tujuan, sehingga
+  memindahkan batch terkarantina GAGAL dengan galat database mentah.
+
+  TEMUAN 3 — OPERATOR GUDANG TIDAK BISA MEMINDAHKAN ANTAR RAK. Aturan
+  pemilik produk: Operator boleh memindahkan (merekalah yang mengangkat
+  barangnya), tetapi TIDAK menambah/mengurangi. INVENTORY_TRANSFER dibuka ke
+  WAREHOUSE_OPERATOR; INVENTORY_ADJUST tetap Super Admin & Manager saja.
+
+  TEMUAN 4 — BATCH BERTANDA "DAHULUKAN KELUAR" MASIH FIFO DI ANTARA
+  SESAMANYA. Aturan pemilik produk: pada tanda ini FIFO berubah jadi LIFO.
+  scopeUrutanKeluar() kini dua arah dalam satu ekspresi.
+
+  LOG AKTIVITAS — SUPER ADMIN SAJA (Permission::ADMIN_AUDIT). Manager
+  SENGAJA ditolak walau ia ikut hampir semua gate admin lain: log ini
+  merekam tindakan Manager juga, dan orang yang diawasi tidak boleh
+  memegang jendela pengawasnya sendiri.
+
+  TIDAK DILEBUR DENGAN stock_movements. Buku besar menjawab "berapa
+  jumlahnya dan dari mana angka itu" — jumlah qty_change-nya WAJIB setara
+  qty_available, jadi tidak boleh kemasukan kejadian yang tidak menggeser
+  angka. Log aktivitas menjawab "siapa melakukan apa", termasuk kejadian
+  tanpa perubahan qty (pindah rak, pasang penanda, buat booking) dan
+  konteks yang tidak punya tempat di buku besar (nilai sebelum/sesudah,
+  IP, alasan yang diketik). Meleburnya merusak salah satu dari keduanya.
+
+  DICATAT DI TEMPAT KEJADIAN, BUKAN LEWAT OBSERVER. Observer tahu kolom
+  mana yang berubah tetapi tidak tahu MENGAPA: qty yang turun terlihat sama
+  entah dikoreksi Manager, dipicking, atau disahkan stocktake.
+
+  MENCATAT TIDAK BOLEH MENGGAGALKAN TINDAKANNYA. Activity::record()
+  menelan seluruh Throwable ke Log::error. Pemindahan stok yang sudah sah
+  tidak boleh batal cuma karena catatannya gagal ditulis.
+
+  APPEND-ONLY di model (pola StockMovement) DAN tanpa rute tulis. Nama &
+  peran pelaku DISALIN sebagai teks: menghapus user tidak boleh ikut
+  menghapus jejak perbuatannya.
+
+  DIUJI: tests/Feature/Wms/ActivityLogTest.php (10 test).
+
+  SUSULAN: KARANTINA & MASALAH KUALITAS (permintaan pemilik produk, bukan PRD)
+  ============================================================
+  Migration: 2026_09_20_000001_add_quarantine_and_old_formula_to_inventory_stocks_table
+             2026_09_25_000001_rename_is_old_formula_to_has_quality_issue
+  Berkas: App\Support\Inventory\StockQuarantine, command stock:sweep-quarantine,
+          InventoryController::quarantine/releaseQuarantine/toggleQualityIssue.
+
+  PENANDANYA DIGANTI NAMA, BUKAN DIGANTI SIFAT. Semula "Formula Lama"
+  (is_old_formula); pemilik produk memintanya jadi "Quality Issue"
+  (has_quality_issue). Kolomnya DI-RENAME, bukan ditambah baru — batch yang
+  sudah ditandai tidak boleh kehilangan tandanya, dan dua kolom untuk satu
+  penanda yang sama adalah dua sumber kebenaran.
+
+  TIGA PENANDA, SIFAT BERBEDA — JANGAN DISATUKAN:
+
+    DAHULUKAN KELUAR (prioritize_out, boolean) — KEBALIKAN KARANTINA.
+    Migration 2026_09_26_000001. Batch tetap 'active' dan tetap harus lolos
+    semua syarat kelayakan jual; yang berubah hanya POSISINYA dalam antrean.
+    Kasusnya: B01 & B05 sama-sama di rak, FIFO mengambil B01, tetapi B05-lah
+    yang harus dikirim.
+
+    SATU-SATUNYA PENANDA YANG MENGUBAH URUTAN ALOKASI, dan karena itu
+    urutannya DIPUSATKAN ke InventoryStock::scopeUrutanKeluar() (dulu
+    scopeFifo — namanya diganti karena urutannya bukan FIFO murni lagi, dan
+    scope bernama fifo() yang ternyata tidak FIFO adalah jebakan). Sebelumnya
+    TIGA jalur menulis orderBy sendiri-sendiri: FifoAllocator::allocate,
+    ProductBooking::reserve, Shipment::stokUntukMenutupi. Kalau penandanya
+    cuma dipasang di satu jalur, batch didahulukan saat pesanan DITERIMA
+    tetapi tidak saat barangnya DIKELUARKAN — ketimpangan yang baru ketahuan
+    berbulan-bulan kemudian.
+
+    Shipment tetap menyortir di PHP (kunci pertamanya — batch yang dipakai
+    pesanan ini — hanya diketahui di PHP), jadi aturannya disalin ke sana
+    dengan komentar penunjuk. Kunci pertama itu TETAP MENANG: batch yang
+    benar-benar naik ke kendaraan tidak boleh disalip oleh apa pun.
+
+    FIFO TETAP BERLAKU DI ANTARA SESAMA BATCH BERTANDA. Penandanya menjawab
+    "yang mana duluan", bukan membatalkan urutan umur.
+
+    ALASAN WAJIB, ditegakkan CHECK constraint inventory_stocks_prioritas_
+    lengkap — bukan sekadar validasi form. Melanggar FIFO akan ditanyakan
+    orang; tanpa alasan tertulis, penanda yang dimaksudkan sementara berubah
+    jadi keadaan permanen tanpa pemilik. Alasannya ikut tercetak di layar
+    picking: operator yang melihat batch baru diambil sementara yang lama
+    masih di rak akan mengira daftarnya salah dan "membetulkan" sendiri.
+
+    LEPAS SENDIRI SAAT BATCH HABIS lewat stock:sweep-priority (harian 00:15,
+    diselisihkan lagi 5 menit dari sweep karantina). HABIS = qty_available +
+    qty_allocated nol DI SELURUH BARIS BATCH. Teralokasi penuh BELUM habis:
+    barangnya masih di rak dan alokasinya masih bisa dibatalkan. Dipilih
+    sweep, bukan dipicu saat pengambilan, karena qty bisa mencapai nol lewat
+    banyak jalur (kirim/koreksi/transfer/stocktake) — dan penanda yang
+    tertinggal pada batch kosong tidak berbahaya sama sekali, sebab batch
+    kosong tidak pernah ikut dicalonkan keluar.
+
+    KARANTINA + DAHULUKAN BOLEH MENYALA BERSAMAAN. Keduanya arah berlawanan
+    pada sumbu yang sama, jadi tidak masuk akal dalam praktik — tetapi tidak
+    dilarang: karantina lepas sendiri, dan begitu lepas penandanya langsung
+    berlaku. Melarangnya justru memaksa Logistik mengingat untuk menandai
+    ulang setelah karantina berakhir.
+
+    DIUJI: tests/Feature/Wms/BatchPriorityTest.php (19 test).
+
+    MASALAH KUALITAS (has_quality_issue, boolean) — MURNI INFORMASI. Stok
+    tetap 'active', tetap ikut FIFO. Tidak ada satu baris kode alokasi pun
+    yang perlu tahu kolom ini ada.
+
+    NAMANYA TERDENGAR SEPERTI PENAHANAN, DAN DI SITU BAHAYANYA. Yang
+    menahan tetap KARANTINA (sementara) dan DDP (permanen). Kalau penanda
+    ini ikut memblokir FIFO, ada dua jalan berbeda untuk melakukan hal yang
+    sama — dan jalan yang ini tidak punya masa berlaku, alasan tertulis,
+    maupun jalur pelepasan. Karena itu pesan sukses togglenya SENGAJA
+    menyebut ulang "penanda ini tidak menahan stok".
+
+    KARANTINA (STATUS_QUARANTINE, status ketiga selain active/ddp/expired)
+    — penahanan SEMENTARA berbasis HARI, dipasang Logistik setelah QC
+    selesai memeriksa (biasanya 1-2 hari setelah produksi naik rak).
+    BUKAN DDP: DDP permanen sampai dikeluarkan manual Manager/Super Admin;
+    karantina LEPAS SENDIRI begitu quarantine_until lewat, lewat sweep
+    harian 00:10 (diselisihkan 5 menit dari sweep kedaluwarsa 00:05).
+
+  KENAPA TIDAK ADA SATU PUN QUERY ALOKASI YANG DIUBAH: FifoAllocator dan
+  Shipment::keluarkanKekurangan() menyaring `status = 'active'` SECARA
+  LANGSUNG (bukan lewat scopeSellable()). Menambah status ketiga otomatis
+  membuatnya terlewati FIFO tanpa menyentuh satu pun query yang sudah ada
+  — persis "masih boleh dijual tapi harus nunggu" tanpa risiko lupa
+  mengecualikannya di suatu tempat.
+
+  SATU BATCH, SATU KEPUTUSAN. Karantina dan Quality Issue diterapkan ke
+  SELURUH baris product_id+warehouse_id+batch_no (StockQuarantine::
+  kunciSebatch), bukan satu baris rak saja — keduanya melekat pada apa
+  yang terjadi saat produksi/pengujian, bukan pada rak tempat sekarang
+  barangnya duduk.
+
+  BLOK KETIGA WAJIB DITAMBAHKAN DI ACCORDION. Sebelum blok Karantina ada,
+  batch berstatus 'quarantine' tidak cocok dengan bucket Good Stock
+  (status != active) MAUPUN bucket DDP (bukan ddp/expired) — LENYAP dari
+  accordion sama sekali padahal barangnya masih di rak. Kalau kelak ada
+  status keempat, cek ulang SELURUH tempat yang membelah stok jadi
+  good/ddp secara eksplisit (termasuk test helper batchDiLayar() di
+  InventoryTest — sempat ketinggalan saat susulan ini dibuat).
+
+  PENAMAAN SCOPE BENTROK: scopeQuarantined() yang SUDAH ADA sejak Fase 4
+  ternyata berarti "DDP maupun kedaluwarsa" (whereIn status DDP/EXPIRED),
+  BUKAN status 'quarantine' yang sesungguhnya. Diganti nama jadi
+  scopeDdpOrExpired() supaya tidak bentrok istilah dengan scopeInQuarantine()
+  yang baru.
+
+  IZIN TERPISAH DARI INVENTORY_ADJUST (permintaan pemilik produk):
+  INVENTORY_QUARANTINE = [Super Admin, Manager, Logistik]. Koreksi qty dan
+  DDP permanen tetap wewenang Manager/Super Admin saja, tetapi karantina
+  adalah pekerjaan sehari-hari Logistik begitu QC selesai memeriksa — bukan
+  keputusan yang perlu naik ke Manager.
+
+    DIUJI: tests/Feature/Wms/StockQuarantineTest.php (22 test).
+
 FASE 5 — Sales Order Portal — SELESAI
   Migration: document_sequences, sales_orders, sales_order_details,
              sales_order_allocations
@@ -569,9 +887,9 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
 
     Tahap 1  Penerimaan pesanan .............. SELESAI
     Tahap 2  Penyesuaian stok + impor Stok Awal ... SELESAI
-    Tahap 3  Picking
-    Tahap 4  Surat jalan & pengiriman
-    Tahap 5  Verifikasi bukti
+    Tahap 3  Picking ......................... SELESAI
+    Tahap 4  Surat jalan & pengiriman ....... SELESAI
+    Tahap 5  Verifikasi bukti ................. SELESAI
 
   TAHAP 1 — PENERIMAAN PESANAN — SELESAI
   (Disempurnakan kemudian oleh SUSULAN TAHAP 1 di bawah blok ini —
@@ -737,7 +1055,7 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
     IMPOR IDEMPOTEN: qty DISAMAKAN dengan isi berkas, BUKAN ditambahkan
     (keputusan pemilik produk). Berkas dianggap kebenaran. Kalau
     ditambahkan, satu impor ulang yang tidak disengaja melipatgandakan stok
-    seluruh gudang tanpa tanda apa pun, dan baru ketahuan saat opname
+    seluruh gudang tanpa tanda apa pun, dan baru ketahuan saat stocktake
     berikutnya. Kunci barisnya GABUNGAN sku|batch|lokasi|tgl_produksi —
     satu SKU sah muncul berkali-kali di berkas.
 
@@ -838,7 +1156,7 @@ SISIPAN — MULTI-GUDANG (keputusan pemilik produk, 2026-09-02)
   URUTAN PENGERJAAN:
     Langkah A  istilah Outstanding + nama gudang ......... SELESAI
     Langkah B  pembatasan gudang ........................ SELESAI
-    Langkah C  baru tahap 3 (picking)
+    Langkah C  baru tahap 3 (picking) ................... SELESAI
 
 
 LANGKAH B — PEMBATASAN GUDANG — SELESAI
@@ -999,13 +1317,772 @@ LANGKAH D — TRANSFER ANTAR GUDANG (F-INV-05) — SELESAI
   punya contoh nilai — itu memang tugas test tersebut, dan penjagaannya
   bekerja persis seperti yang dirancang.
 
-FASE 7 — Retur (Penolakan Sales -> Retur Gudang)
-  Migration: sales_returns, sales_return_details,
-             add_sales_return_fk_to_inventory_stocks_table (FK susulan)
-  Ruang lingkup: docs/1 §6.10 — PERHATIKAN tabel terminologi: Sales
-  melaporkan PENOLAKAN (SalesOrderController::reportReturn), gudang yang
-  memproses RETUR (InboundController::returnsIndex/processReturn). Jangan
-  tertukar istilah di kode maupun pesan UI.
+TAHAP 3 — PICKING (F-OUT-03) — SELESAI
+  Migration: 2026_09_16_000001_create_picking_lists_table
+  Berkas: PickingList, PickingListItem,
+          App\Support\Outbound\PickingListBuilder (Logistik),
+          App\Support\Outbound\PickingRun (Operator),
+          PickingController, StorePickingListRequest,
+          ReportPickingShortageRequest,
+          wms/outbound/picking{-batching,,-detail}.blade.php
+
+    SUSULAN: MELEPAS TUGAS (PickingRun::release, permintaan pemilik produk).
+    Tugas yang sudah diambil dahulu terkunci selamanya atas nama satu orang.
+    Pengiriman digeser ke besok atau tugasnya dioper — dan satu-satunya
+    jalan keluar adalah Logistik MEMBUBARKAN daftarnya lalu menyusun ulang
+    dari nol. Terlalu mahal untuk keadaan yang sering terjadi.
+
+    AMAN TERHADAP BUKU BESAR, dan itu bukan kebetulan: menandai baris
+    picking TIDAK menyentuh stok — yang menggerakkan angka hanya complete().
+    Jadi melepas tugas cukup mengosongkan tanda pada barisnya; tidak ada
+    mutasi yang perlu dibalik. Ada test khusus yang menjaga anggapan itu
+    (test_melepas_tugas_tidak_menggerakkan_stok_sama_sekali). Sesudah
+    complete(), jalan ini tertutup: barangnya sudah turun ke dock.
+
+    BARIS YANG SUDAH DITANDAI IKUT DIKOSONGKAN — operator berikutnya tidak
+    boleh mewarisi tanda yang tidak ia buat sendiri. Pesanannya kembali ke
+    APPROVED, bukan tetap PICKING. Daftarnya TIDAK dibubarkan: isinya utuh
+    dan langsung bisa diambil operator lain.
+
+    DUA PINTU, SATU ATURAN. Operator melepas tugasnya sendiri; Logistik/
+    Manager melepas milik siapa pun — satu-satunya jalan saat operatornya
+    sudah pulang dan daftarnya tertinggal terkunci. Keduanya lewat
+    PickingRun::release(); batas siapa-boleh-melepas-milik-siapa ditegakkan
+    DI DALAM sana, bukan oleh rutenya. Alasan wajib, tercatat di activity_logs.
+
+    SATU DAFTAR MEMUAT BANYAK PESANAN — keputusan pemilik produk, dan ini
+    yang menentukan seluruh bentuk datanya. Satu pesanan sering hanya berisi
+    beberapa item, sedangkan satu container yang berangkat memuat pesanan
+    dari banyak toko sekaligus. Logistik menentukan siapa berangkat bersama;
+    operator mengambil seluruhnya dalam SATU kali jalan. Kalau daftarnya per
+    pesanan, operator bolak-balik ke rak yang sama sebanyak jumlah pesanan.
+
+    DUA ORANG, DUA WEWENANG. PickingListBuilder untuk Logistik (menyusun,
+    membubarkan), PickingRun untuk Operator (ambil tugas, tandai, Siap
+    Loading). Sengaja dipisah: yang menentukan isi container bukan yang
+    berjalan ke rak. Menyatukannya berarti operator bisa memilih sendiri
+    pesanan mana yang ia kerjakan hari ini.
+
+    KOLOM sales_orders.picking_list_id, BUKAN TABEL PIVOT. Satu pesanan
+    hanya boleh ada di SATU daftar; pivot membuat "dua daftar memuat pesanan
+    yang sama" bisa terjadi, dan akibatnya barangnya diambil dua kali oleh
+    dua operator — yang kedua baru sadar di rak.
+
+    BARISNYA DIBEKUKAN SAAT DAFTAR DIBUAT, bukan dihitung ulang dari alokasi
+    tiap kali layar dibuka. Daftar ini dicetak dan dibawa berjalan; kalau
+    isinya berubah di belakang layar, kertas di tangan operator dan layar di
+    kantor menunjukkan dua hal berbeda — dan yang dipercaya operator adalah
+    kertasnya. Konsekuensinya PendingAllocationFiller kini juga MELEWATI
+    pesanan yang picking_list_id-nya terisi, bukan hanya yang sudah lewat
+    picking: alokasi susulan tidak akan pernah muncul di kertas itu.
+
+    SATU BARIS PER BATCH, BUKAN PER SKU. Pesanan 30 bisa terpecah ke dua
+    batch di dua rak karena FIFO. Meleburnya jadi satu baris membuat operator
+    menebak sendiri dari rak mana ia mengambil, dan tebakan itulah yang
+    merusak urutan FIFO yang sudah susah payah dihitung.
+
+    TIGA MUTASI SAAT SIAP LOADING, DAN INI YANG PALING MUDAH "DISEDERHANAKAN"
+    LALU DIAM-DIAM MERUSAK BUKU BESAR:
+
+        DEALLOCATED  +qty_to_pick   cadangannya berakhir
+        OUT          -qty_diambil   yang benar-benar menuju customer
+        ADJUSTMENT   -qty_kurang    yang ternyata TIDAK ADA di rak
+
+    Alasannya: saat alokasi dibuat, barangnya SUDAH dikurangi dari
+    qty_available dan dipindahkan ke qty_allocated. Jadi ketika barangnya
+    turun dari rak, qty_available TIDAK berubah lagi — menuliskan satu baris
+    OUT negatif saja akan mengurangi barang yang sama untuk KEDUA KALINYA di
+    ledger, dan tidak ada satu layar pun yang menampilkan itu. Jumlah ketiga
+    baris nol terhadap qty_available; yang berkurang adalah qty_allocated.
+    JANGAN GABUNGKAN. Selisih picking bukan "barang keluar": ia tidak pernah
+    sampai ke customer, dan menghitungnya sebagai OUT membuat laporan
+    pengiriman lebih besar daripada yang benar-benar dikirim.
+
+    Dijaga test test_ledger_tetap_setara_qty_available_sesudah_picking, yang
+    menjumlahkan SELURUH ledger dan membandingkannya dengan perubahan
+    qty_available. Catatan saat menulis test semacam ini: stok yang ditanam
+    langsung lewat factory TIDAK punya mutasi IN, jadi yang benar adalah
+    membandingkan SELISIH dari qty awal, bukan angka mutlaknya.
+
+    SELISIH ADALAH PINTU TERPISAH, BUKAN ISIAN DI SETIAP BARIS (keputusan
+    pemilik produk, dan pertanyaannya dijawab dengan alasan ini): jalur
+    normal satu ketuk "Ambil". Kalau tiap baris meminta "berapa yang
+    benar-benar diambil", operator mengetik angka yang sama dengan yang
+    tertulis ratusan kali sehari — dan ketikan yang selalu sama persis
+    berhenti dibaca, justru pada hari angkanya berbeda. Tetapi pintunya HARUS
+    ADA: tanpanya, operator yang menemukan rak kurang hanya punya dua
+    pilihan, menandai barang yang tidak ia ambil (sistem berbohong) atau
+    berhenti dan menahan pengiriman.
+
+    ALASAN SELISIH WAJIB, DITEGAKKAN CHECK CONSTRAINT — bukan hanya
+    FormRequest. Baris selisih tanpa keterangan adalah stok yang hilang tanpa
+    jejak, dan itu persis yang paling sering dicari saat stocktake berikutnya.
+
+    TUGAS DIKUNCI KE SATU OPERATOR (keputusan pemilik produk). Tanpa penanda
+    pemegang, dua operator di gudang yang sama berjalan mengambil daftar yang
+    sama. Super Admin boleh menolong daftar yang tersangkut — operator yang
+    memegangnya bisa saja pulang di tengah shift.
+
+    LUBANG YANG HAMPIR TERTINGGAL, dan ini sambungan ke SUSULAN TAHAP 1:
+    pembatalan pesanan boleh sampai sebelum barang berangkat, termasuk saat
+    status ready_to_ship. Padahal sesudah picking selesai, alokasinya SUDAH
+    HABIS DIPAKAI — OrderCanceller::lepasSeluruhAlokasi() tidak menemukan apa
+    pun untuk dikembalikan, dan stoknya lenyap tanpa jejak. Karena itu
+    OrderCanceller kini memanggil PickingRun::kembalikanHasilPicking() lebih
+    dulu, yang mengembalikan barang ke rak, batch, dan tanggal produksi yang
+    SAMA — ketiganya dibekukan di baris picking, jadi tidak ada yang ditebak.
+    Aturan pembatalan pilihan pemilik produk tetap utuh, tidak dipersempit.
+
+    PEMBUBARAN DAFTAR hanya selama BELUM ADA satu baris pun yang ditandai.
+    Sesudah itu barangnya sudah turun dari rak dan tergeletak di dock;
+    membubarkan daftar hanya menghapus catatannya, dan tidak ada lagi yang
+    menjelaskan kenapa ia di sana.
+
+    IZIN BARU outbound.picking.view — fitur tersendiri, bukan menumpang
+    outbound.picking.list atau .process. Rincian daftar dibaca DUA peran
+    dengan pekerjaan berbeda: Logistik memeriksa hasil susunannya, Operator
+    mengerjakannya. Menumpang salah satunya berarti salah satu peran ditolak
+    membuka halaman yang justru bagian pekerjaannya.
+
+    Stub pickingBatching()/picking()/completePicking() di OutboundController
+    DIHAPUS, bukan dibiarkan: completePicking() hanya mengembalikan "barang
+    siap loading" tanpa menyentuh satu baris stok pun, dan pesan sukses yang
+    tidak berbuat apa-apa adalah cara paling halus membuat operator percaya
+    barangnya sudah keluar dari rak.
+
+    BELUM DIKERJAKAN, sengaja, dan penting untuk tahap 4:
+    sales_order_details.qty_shipped TIDAK diisi di sini. Yang dipicking
+    tercatat di picking_list_items.qty_picked; "yang benar-benar dikirim"
+    baru pasti setelah Surat Jalan terbit, dan F-OUT-04 #3-4 memang punya
+    langkah pembandingan tersendiri sebelum itu. outstanding_qty juga tidak
+    disentuh: ia angka keputusan approval, bukan temuan di rak.
+
+    DIUJI: tests/Feature/Wms/PickingTest.php (32).
+
+TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
+  Migration: 2026_09_17_000001_create_delivery_notes_table
+             2026_09_17_000002_add_shipping_to_delivery_notes_table
+  Berkas: DeliveryNote, DeliveryNoteLine,
+          App\Support\Import\DeliveryNoteImporter,
+          App\Support\Outbound\Shipment,
+          App\Support\Messaging\{WhatsAppSender,DispatchResult,
+            ManualWhatsAppSender,LogWhatsAppSender,CloudApiWhatsAppSender},
+          App\Jobs\SendDeliveryNotification,
+          DeliveryController, EpodController, ShipDeliveryNoteRequest,
+          wms/outbound/delivery{,-detail}.blade.php, driver/epod.blade.php
+
+    TEMUAN YANG MENGUBAH SELURUH RANCANGAN TAHAP INI (pemilik produk,
+    2026-09-03): SURAT JALAN RESMI DITERBITKAN SISTEM BC, BUKAN SISTEM INI.
+    Rancangan lama docs/1 F-OUT-04 #6-9 dan docs/2 §3.5 mengandaikan kita
+    yang mencetak, lengkap dengan nomor SJ yang dibangkitkan sendiri
+    (SJ-KRW-2026-00001) dan starting number yang diatur Super Admin.
+    Semuanya GUGUR:
+
+      - Tidak ada nomor SJ yang dibangkitkan di sini. `document_no` disalin
+        dari kolom "Document No." milik BC.
+      - Tidak ada tombol cetak. Menyediakannya melahirkan dokumen kedua yang
+        bersaing dengan dokumen resminya.
+      - Kolom printed_at/printed_by rancangan lama tidak dipakai; yang
+        terjadi bukan pencetakan melainkan PENYALINAN.
+      - Pertanyaan "kode gudang KRW/PKU/SBY vs WH-0x" yang sengaja ditunda
+        sejak sisipan multi-gudang IKUT GUGUR — tidak ada lagi nomor dokumen
+        kita yang membutuhkannya.
+
+    Peran sistem ini: MENDUKUNG TRANSPARANSI. Ia mencocokkan apa yang
+    benar-benar diambil dari rak dengan apa yang tertulis di dokumen resmi,
+    lalu menyimpan jejaknya.
+
+    ALUR: Logistik mengunggah ekspor SJ dari BC (per hari, atau per container
+    yang mau berangkat) -> sistem mencocokkan lewat nomor SO -> layar
+    menampilkan qty BC berdampingan dengan qty hasil picking -> Logistik
+    mengisi data supir dan menyatakan berangkat -> tautan konfirmasi dikirim
+    ke WhatsApp supir -> supir menekan "Barang Sudah Sampai".
+
+    DIPERIKSA KE DATA NYATA SEBELUM DIRANCANG, dan ini yang membuat seluruh
+    pencocokan mungkin: kolom "No." di ekspor BC (ID1-F0017X002820) SAMA
+    PERSIS dengan SKU kami — ketiga contoh dari pemilik produk ketemu, dan
+    seluruh 1.735 SKU berpola ID1-. "Sell-to Customer No." (IDR13302) juga
+    sama dengan customers.code. Jadi satu berkas bisa dicocokkan di tiga
+    sisi sekaligus.
+
+    QTY BC YANG MENANG (keputusan pemilik produk), TETAPI BARANGNYA IKUT
+    PINDAH. Contoh persis dari beliau: dipesan 15, dipicking 10, di SJ hanya
+    8. Maka yang berangkat 8, Outstanding jadi 7, dan 2 pail yang SUDAH turun
+    dari rak DIKEMBALIKAN ke stok. Bagian terakhir itu yang paling mudah
+    terlewat: barangnya nyata, ada di loading dock, tidak ikut naik. Tanpa
+    mengembalikannya, stok tercatat berkurang 10 sementara yang pergi hanya 8
+    dan selisihnya baru ketahuan saat stocktake. Pengembaliannya memakai jalur
+    yang sama dengan pembatalan setelah picking (PickingRun::masukkanKembali),
+    ke rak dan batch yang dibekukan di baris picking.
+
+    SJ LEBIH BANYAK DARIPADA YANG DIPICKING = TEMUAN STOK KURANG, BUKAN
+    DITOLAK. Rancangan awal saya MENOLAK kasus ini dengan alasan "mengirim 12
+    padahal 10 yang diambil mustahil secara fisik". Pemilik produk
+    mengoreksinya, dan alasannya lebih kuat: dokumen BC adalah kebenaran yang
+    disetujui, jadi kalau SJ menyebut 12 keluar sementara yang tercatat
+    dipicking hanya 10, yang keliru BUKAN dokumennya melainkan angka stok
+    kami — "berarti stok di gudang ada yang kurang".
+
+    Menolaknya MENYEMBUNYIKAN temuan itu alih-alih mencegahnya. Yang benar:
+    qty SJ tetap dipakai sebagai yang terkirim, dan kekurangannya dikeluarkan
+    dari stok sehingga angka di sistem turun menyusul kenyataan di rak.
+
+    Mutasinya OUT, BUKAN ADJUSTMENT. Barangnya memang pergi — dokumen resmi
+    menyatakan demikian, dan dokumen itulah dasar tagihan ke customer.
+    Mencatatnya sebagai koreksi membuat laporan pengiriman menyebut 10
+    sementara invoice menyebut 12, dan selisih dua angka itu yang paling
+    mahal ditelusuri belakangan. Yang membedakannya dari OUT biasa adalah
+    CATATANNYA, yang menyebut tegas bahwa qty ini tidak pernah tercatat saat
+    picking dan perlu ditelusuri saat stocktake.
+
+    Batchnya diambil dari yang memang dipakai pesanan ini lebih dulu, baru
+    FIFO — mengambil dari batch sembarang membuat umur stok sisa berbeda dari
+    kenyataan. Bila stok tercatat pun tidak cukup, sisanya DILAPORKAN dan
+    tidak dipaksakan: CHECK (qty_available >= 0) akan membatalkan seluruh
+    transaksi dengan galat mentah, pelajaran yang sama dengan FifoAllocator.
+
+    NOMOR SO ADALAH ACUAN UTAMA DI LAYAR PICKING, bukan nomor PO (keputusan
+    pemilik produk). Nomor SO yang nanti dicocokkan dengan Surat Jalan dari
+    BC; nomor PO hanya berarti di dalam sistem ini. Karena itu di antrean
+    picking dan rincian daftar, yang ditebalkan nomor SO dan nomor PO turun
+    jadi keterangan kecil.
+
+    outstanding_qty DIHITUNG ULANG (qty_ordered - qty_shipped), bukan
+    ditambahkan ke nilai lama. Nilai lama adalah selisih saat penerimaan;
+    menambahkannya menghitung kekurangan yang sama dua kali pada pesanan yang
+    memang sejak awal disetujui sebagian.
+
+    IMPOR IDEMPOTEN, DAN LEBIH DARI ITU. Selain qty disamakan (bukan
+    ditambahkan), baris yang DICABUT di BC ikut hilang saat impor ulang:
+    saat satu dokumen pertama kali disentuh dalam satu impor, seluruh baris
+    lamanya dihapus. Kalau tertinggal, qty-nya ikut terhitung saat
+    pencocokan dan barang yang sudah dicabut dari dokumen resmi tampak masih
+    harus dikirim. Dokumen yang TIDAK disebut berkas tidak disentuh.
+
+    QTY BERKOMA. Ekspor BC menulis "1," dan "10," untuk 1 dan 10 — koma
+    pemisah desimal, disertakan meski tanpa angka di belakang. Pecahan
+    DITOLAK, bukan dibulatkan: "2,5 pail" di dokumen resmi adalah tanda
+    berkasnya salah.
+
+    SJ TANPA PASANGAN BUKAN KEGAGALAN, TAPI WAJIB TERLIHAT. Ekspor harian BC
+    memuat SJ seluruh perusahaan, termasuk pesanan yang tidak lewat portal
+    ini. Ia disimpan dengan sales_order_id NULL dan diberi kartu tersendiri
+    di layar — karena kalau sebuah SJ SEHARUSNYA berpasangan dan ternyata
+    tidak, artinya nomor SO di BC berbeda dari yang diketik Logistik saat
+    menerima pesanan, dan itu ketahuan di sini atau tidak sama sekali.
+
+    Pencocokan nomor SO menghormati penggabungan invoice: whereNull
+    (so_merged_into_id), karena nomor dipegang pesanan INDUK.
+
+    TIDAK ADA MASTER SUPIR (keputusan pemilik produk, dan alasannya tepat):
+    supir berganti tiap hari dan sebagian besar dari perusahaan jasa lain,
+    sehingga data induk hanya melahirkan ratusan baris tak terawat. Yang
+    dilindungi karena itu bukan datanya melainkan NOMORNYA:
+
+      - PhoneNumber::forWhatsApp() DITAMBAHKAN. normalize() yang lama hanya
+        membuang hiasan dan MEMBIARKAN "081234567890" apa adanya, karena
+        itulah bentuk dari ERP. WhatsApp tidak mengenal awalan nol nasional:
+        mengirim ke "0812..." bukan gagal dengan galat melainkan diterima
+        sebagai nomor negara lain — kegagalan yang tidak berbunyi.
+      - Bentuk nomor diperiksa (62 + 9..13 digit), bukan sekadar "wajib
+        diisi". Salah ketik nomor gagalnya DIAM, dan yang menemukannya
+        adalah Logistik keesokan harinya saat menanyakan kenapa belum
+        dikonfirmasi.
+      - Nomor yang akan benar-benar dipakai DITAMPILKAN KEMBALI di layar
+        sambil diketik.
+      - Riwayat nomor yang pernah dipakai jadi saran ketik. Daftar ini tumbuh
+        SENDIRI dari pengiriman yang sudah terjadi; tidak ada yang perlu
+        merawatnya, tapi ia menolong pada kasus tersering: supir vendor yang
+        sama datang lagi.
+
+    WHATSAPP: SATU ANTARMUKA, PENYEDIA BISA DIGANTI LEWAT KONFIGURASI.
+    Bawaannya `manual` — sistem menyiapkan pesan + tautan, Logistik menekan
+    kirim lewat WhatsApp-nya sendiri. Berpindah ke Cloud API resmi Meta hanya
+    mengubah WHATSAPP_DRIVER, tidak menyentuh satu baris pun di alur
+    pengiriman barang.
+
+    KENAPA MANUAL YANG JADI BAWAAN, dan kenapa gateway lokal justru paling
+    berbahaya DI KASUS INI: nomor tujuannya adalah supir pihak ketiga yang
+    BERGANTI SETIAP HARI. Bagi gateway tidak resmi (Fonnte/Wablas, yang
+    menumpang WhatsApp Web), mengirim ke nomor yang selalu baru tanpa
+    percakapan sebelumnya adalah pola yang paling cepat dianggap spam — dan
+    yang hilang saat nomor diblokir bukan fitur ini, melainkan nomor
+    WhatsApp perusahaan beserta seluruh riwayatnya. Jalur resmi Meta
+    menghindarinya, tetapi verifikasinya hitungan minggu dan pengiriman
+    barang tidak boleh menunggu.
+
+    Mode `manual` mengembalikan status `manual`, BUKAN `failed`. Pada mode
+    itu "belum terkirim" adalah cara kerja normal yang menunggu satu ketukan
+    manusia; menyamakannya dengan gagal membuat layar penuh peringatan merah
+    pada hari yang berjalan normal — dan peringatan yang selalu menyala
+    berhenti dibaca.
+
+    Bila driver 'cloud' dipilih tetapi kredensialnya belum lengkap, sistem
+    TURUN ke manual alih-alih melempar galat: kredensial kosong adalah
+    keadaan yang sangat mungkin (menunggu verifikasi Meta), dan matinya harus
+    berupa "kirim manual dulu", bukan halaman Surat Jalan yang meledak.
+
+    STATUS PESAN TERPISAH DARI STATUS BARANG. Kalau WhatsApp gagal, truk
+    tetap berangkat (keputusan pemilik produk) — menjadikan keberhasilan
+    kirim sebagai syarat berangkat berarti gangguan penyedia pihak ketiga
+    bisa menghentikan pengiriman seluruh gudang. Kegagalannya ditandai
+    dengan alasannya, plus tombol kirim ulang dan salin tautan.
+
+    Pengiriman pesan DIANTREKAN: panggilan ke penyedia bisa menggantung, dan
+    menjalankannya di dalam permintaan HTTP membuat tombol Kirim seolah rusak
+    padahal pengirimannya sudah tercatat. Job memeriksa "sudah terkirim,
+    jangan ulang" — antrean bisa menjalankannya ulang setelah gangguan, dan
+    supir yang menerima pesan sama tiga kali berhenti membacanya.
+
+    E-POD: rute {po_number} DIGANTI jadi {token}. Yang lama berarti siapa pun
+    yang tahu (atau menebak) nomor PO bisa menyatakan kiriman orang lain
+    sudah sampai. Token acak 48 karakter, disimpan sebagai kolom, dan
+    rutenya dibatasi kecepatan (throttle:30,1) supaya tidak bisa dicari
+    dengan mencoba satu per satu. Token tak dikenal DAN dokumen yang belum
+    berangkat dijawab 404 yang sama.
+
+    Konfirmasi supir memindahkan pesanan ke PROOF_UPLOADED, bukan COMPLETED:
+    sampai BUKAN selesai — bukti Surat Jalan bertanda tangan masih harus
+    diunggah dan diverifikasi (F-OUT-05, tahap 5).
+
+    CATATAN TEST: antrean di test memakai driver `sync`, sehingga job
+    berjalan DI DALAM permintaan HTTP. Test yang penyedianya sengaja dibuat
+    gagal ikut mengulang beserta jeda backoff 30 detik — satu test sempat
+    memakan 36 detik. Pakai Queue::fake() lalu jalankan job-nya sendiri.
+    Tanpa itu, test "tidak dikirim dua kali" juga lulus karena alasan yang
+    salah.
+
+    DIUJI: tests/Feature/Wms/DeliveryNoteImportTest.php (15),
+           tests/Feature/Wms/ShipmentTest.php (22).
+
+    YANG PERLU DISIAPKAN PEMILIK PRODUK bila mau naik ke Cloud API resmi:
+    akun Meta Business terverifikasi, satu nomor telepon KHUSUS yang belum
+    pernah dipakai WhatsApp biasa (dan sesudah dipakai Cloud API tidak bisa
+    kembali jadi WhatsApp biasa), serta template kategori "utility" yang
+    disetujui Meta.
+
+  TAHAP 5 — VERIFIKASI BUKTI — SELESAI
+  Migration: 2026_09_18_000001_create_delivery_proofs_table,
+             2026_09_18_000002_create_so_number_changes_table
+  Berkas: App\Support\Outbound\ProofOfDelivery, App\Support\Outbound\SoNumberFixer,
+          Wms\ProofVerificationController, Sales\DeliveryProofController,
+          RejectDeliveryProofRequest, UploadDeliveryProofRequest,
+          wms/outbound/verification{,-detail}.blade.php
+
+    ALUR: supir konfirmasi sampai -> Sales memotret Surat Jalan bertanda
+    tangan dari HP -> Logistik memeriksa fotonya -> pesanan selesai.
+
+    SATU STATUS, DUA ANTREAN (keputusan pemilik produk). Saya mengusulkan
+    status baru antara "sampai tujuan" dan "menunggu verifikasi bukti",
+    supaya antrean Logistik tidak bercampur. DITOLAK dengan alasan yang
+    tepat: "sales menggunakan perangkat mobile bukan desktop" — status
+    tambahan berarti label tambahan di layar sempit.
+
+    Konsekuensinya di sisi Logistik TIDAK boleh diabaikan: pesanan yang
+    fotonya belum ada dan pesanan yang fotonya sudah menunggu berstatus
+    SAMA. Karena itu tab di halaman verifikasi dibagi menurut ADA-TIDAKNYA
+    foto yang menunggu (whereHas/whereDoesntHave proofs), BUKAN menurut
+    kolom status. Menyaring dengan status akan menumpuk ketiganya di satu
+    tab dan membuat antreannya tak terpakai.
+
+    KUOTA 3 FOTO DIHITUNG DARI YANG MASIH BERLAKU (pending + verified),
+    bukan dari seluruh baris. Kalau yang ditolak ikut dihitung, Sales yang
+    tiga kali salah potret terkunci selamanya dan pesanannya tidak akan
+    pernah bisa ditutup — persis kebalikan dari tujuan penolakan.
+
+    FOTO YANG DITOLAK TIDAK DIHAPUS, dari basis data maupun dari disk. Kalau
+    nanti pelanggan dan gudang berbeda pendapat soal apa yang diterima,
+    justru foto yang pernah ditolak itu yang menjelaskan kenapa prosesnya
+    berputar.
+
+    DISK PRIVAT ('local'), bukan 'public'. Isi fotonya tanda tangan, nama,
+    dan alamat pelanggan; disk publik berarti siapa pun yang menebak nama
+    berkasnya bisa mengunduhnya tanpa login. Pratinjaunya lewat rute yang
+    memeriksa kepemilikan/gudang.
+
+    `mimetypes` DIPAKAI BERSAMA `mimes`. `mimes` hanya melihat ekstensi —
+    berkas apa pun yang dinamai .jpg lolos. Yang diunggah di sini
+    ditampilkan kembali di layar Logistik.
+
+    PERCABANGAN TERMIN (PRD F-OUT-06 #5) DIKERJAKAN SEKARANG meski Billing
+    baru Fase 8: bayar di muka -> COMPLETED, tempo -> COMPLETED_BILLING.
+    Menyamakan keduanya membuat piutang lenyap dari layar begitu barang
+    sampai, dan itu tidak akan ketahuan sampai Fase 8 dibangun.
+
+    SLA dihitung shipped_at -> delivered_at, BUKAN sampai verifikasi. Sales
+    bisa terlambat berhari-hari ke toko, dan itu bukan pekerjaan gudang.
+
+  ============================================================
+  SALAH KETIK NOMOR SO — DUA PINTU, YANG UTAMA BUKAN MENGETIK
+  ============================================================
+  Dilaporkan pemilik produk: nomor SO diketik manusia saat menerima pesanan,
+  dan salah satu digit membuat Surat Jalan dari BC tidak pernah menemukan
+  pesanannya. Pertanyaannya: apakah disediakan fitur edit?
+
+  JAWABANNYA BUKAN SEKADAR TOMBOL EDIT. Salah ketik SELALU ketahuan dari
+  sisi Surat Jalan ("belum menemukan pesanannya"), dan di situ nomor yang
+  BENAR sudah tersedia hitam di atas putih. Menyuruh orang pindah ke halaman
+  pesanan lalu mengetik ulang berarti meminta jari yang tadi salah untuk
+  tidak salah lagi.
+
+    pair()   PINTU UTAMA (SoNumberFixer). Di SJ yatim, Logistik memilih
+             pesanannya; SISTEM yang menyalin nomor SO dari dokumen BC.
+             Ditolak bila: pelanggannya berbeda (hampir selalu berarti salah
+             pilih pesanan), nomornya sudah dipegang pesanan lain, SJ-nya
+             sudah berpasangan/berangkat, atau pesanannya sudah berangkat.
+
+    rename() PINTU KECIL. Untuk salah ketik yang ketahuan sendiri SEBELUM
+             SJ terbit — saat itu belum ada dokumen untuk disalin. DIBATASI
+             pada APPROVED/PICKING/READY_TO_SHIP: mengubah nomor setelah
+             barang jalan berarti menulis ulang sejarah dokumen yang sudah
+             dipakai menagih. Sesudah rename, SJ yatim bernomor sama
+             DISAMBUNGKAN otomatis — berkas Excel-nya sudah dibuang, dan
+             tanpa ini Logistik harus mencarinya lagi hanya untuk mengulang
+             pencocokan.
+
+  Keduanya menulis so_number_changes (nomor lama, sumber, siapa). Nomor SO
+  adalah kunci pencocokan dokumen resmi; mengubahnya tanpa jejak sama dengan
+  memindahkan barang ke pesanan lain tanpa ada yang bisa menelusurinya.
+
+  SJ YATIM SELALU TERLIHAT DI DAFTAR. Dokumen tanpa pasangan belum punya
+  gudang, sehingga WarehouseScope::apply biasa MENYEMBUNYIKAN persis baris
+  yang paling perlu ditindak — dan saringan "tanpa pasangan" mengembalikan
+  daftar kosong padahal kartunya menghitung. DeliveryController::index
+  memakai (warehouse_id = batas OR warehouse_id IS NULL).
+
+    DIUJI: tests/Feature/Wms/ProofOfDeliveryTest.php (20),
+           tests/Feature/Wms/SoNumberFixTest.php (12).
+
+  ============================================================
+  SKU BERBEDA MENGHENTIKAN PENGIRIMAN — BUKAN SELISIH QTY
+  ============================================================
+  Migration: 2026_09_19_000001_add_substitution_to_delivery_notes_table
+
+  DITEMUKAN PEMILIK PRODUK SAAT UJI COBA, dan ini cacat rancangan saya.
+  Aturan "dokumen BC yang menang" saya terapkan ke qty DAN SKU. Untuk qty
+  aturan itu benar — 12 lawan 10 berarti stok gudang yang kurang. Untuk SKU
+  aturan itu RUNTUH: mesin tidak punya cara tahu sisi mana yang keliru.
+
+  Yang terjadi sebelum diperbaiki (dibuktikan dengan menjalankannya —
+  pesanan 5Kg qty 2, dipicking 5Kg qty 2, SJ menyebut SKU lain qty 2):
+
+      ID1-...2020  OUT  -2   <- dikeluarkan, padahal tak pernah diambil
+      ID1-...2820  IN   +2   <- dikembalikan, padahal sudah naik kendaraan
+      qty_shipped = 0, outstanding = 2  <- pesanan terutang selamanya
+
+  Tiga catatan salah sekaligus, DAN peringatannya salah diagnosis: ia
+  menyebut "temuan stok kurang, perlu ditelusuri saat stocktake" — mengirim
+  stocktake berikutnya mengejar selisih yang tidak pernah ada.
+
+  TIGA LAPIS PERBAIKAN:
+
+  1. DI HULU (DeliveryNoteImporter::catatanSkuAsing). Saat berkas diimpor,
+     SKU SJ dibandingkan dengan rincian pesanannya. Yang asing dilaporkan di
+     ringkasan impor — berjam-jam sebelum kendaraan menunggu di dermaga.
+     Pesanan tanpa rincian sama sekali DILEWATI: menandai seluruh SKU-nya
+     asing membuat peringatan ini selalu muncul, dan peringatan yang selalu
+     muncul berhenti dibaca.
+
+  2. DI LAYAR (Shipment::skuTidakCocok). Diagnosis "SKU berbeda"
+     MENYINGKIRKAN diagnosis selisih qty, bukan menemaninya. Kedua barisnya
+     memang muncul sebagai "kurang" dan "lebih", tetapi menamainya begitu
+     akan mengarahkan orang ke tempat yang salah.
+
+  3. DI TOMBOL (Shipment::ship). Pengiriman DITAHAN. Diperiksa sebelum satu
+     baris stok pun disentuh — blokir yang terjadi setelah stok bergerak
+     hanya memindahkan kerusakan.
+
+  PINTU KELUARNYA (keputusan pemilik produk: "blokir + pintu konfirmasi"):
+  Shipment::confirmSubstitution, rute wms.delivery.substitution. TERPISAH
+  dari formulir supir, dan MENGGANTIKANNYA di layar — centang yang menempel
+  pada formulir yang sama akan ikut tercentang bersama yang lain, dan selama
+  formulir berangkat masih terlihat orang mengisinya dulu lalu bertanya
+  belakangan.
+
+  Sesudah dikonfirmasi, mutasinya sama tetapi CATATANNYA berbeda: "barang
+  PENGGANTI", bukan "selisih stok … stocktake". Kalimat itu yang menentukan ke
+  mana orang mencari setahun kemudian.
+
+  BARIS YANG DIGANTIKAN DITUTUP (keputusan pemilik produk): outstanding jadi
+  0 dengan sales_order_details.substitution_note menyebut SJ-nya, sementara
+  qty_shipped tetap 0 karena barangnya memang tidak berangkat. Membiarkannya
+  outstanding berarti Sales menagih barang yang sudah diterima pelanggannya.
+
+    DIUJI: ShipmentTest (8 test tambahan),
+           DeliveryNoteImportTest (2 test tambahan).
+
+  SUSULAN: BOOKING PRODUK (keputusan pemilik produk, bukan PRD)
+  Migration: create_stock_bookings_table
+  Berkas: App\Models\{StockBooking,StockBookingAllocation},
+          App\Support\Outbound\ProductBooking,
+          App\Http\Controllers\Wms\BookingController,
+          PendingAllocationFiller (antrean janji),
+          InboundController::verifyStore, OrderApprovalController::accept
+
+    KEJADIANNYA: customer minta jatah dari batch yang BELUM diproduksi —
+    "nanti kalau jadi, 5 untuk saya". Barangnya belum ada, jadi tidak ada apa
+    pun di sistem yang memegang janji itu. Begitu produksi selesai dan naik
+    rak, barang mendarat bebas dan pesanan lain yang kebetulan diproses lebih
+    dulu menyambarnya lewat FIFO. Pengiriman ke customer itu dua sampai tiga
+    minggu sekali, jadi kehilangannya baru ketahuan lama sesudahnya.
+
+    CACAT YANG DITEMUKAN SAAT MENELUSURI: PendingAllocationFiller sudah ada
+    sejak Fase 6 dan dipanggil dari tambah stok manual, impor stok awal, dan
+    transfer antar gudang — tetapi TIDAK dari verifikasi inbound. Padahal
+    itulah jalur produksi, jalan masuk stok yang paling sering dipakai. Satu-
+    satunya jalur yang penting justru satu-satunya yang terlewat. Sekarang
+    disambungkan, dan hasilnya dilaporkan di layar verifikasi.
+
+    MENAHANNYA MEMAKAI JALAN YANG SUDAH ADA, bukan kolom stok baru. Booking
+    memindahkan qty dari `qty_available` ke `qty_allocated`, persis seperti
+    alokasi pesanan. FifoAllocator hanya melihat `qty_available`, begitu pula
+    availableFor() yang memberi angka "stok yang bisa dijanjikan". Jadi begitu
+    5 dari 10 unit dibooking, yang bisa dipesan tinggal 5 DENGAN SENDIRINYA —
+    tanpa satu pun query alokasi atau layar ketersediaan perlu diubah, dan
+    tanpa ada tempat kedua yang bisa lupa menyaring.
+
+    SATU JANJI, SATU PEMILIK — bagian yang paling mudah dirusak. Begitu
+    pesanan sungguhan dari customer itu diterima, jatahnya BERPINDAH dari
+    booking ke pesanan (ProductBooking::consume, dipanggil dari accept()
+    SEBELUM FIFO). Perpindahannya mencakup dua hal berbeda:
+      1. Jatah yang SUDAH tercadang — alokasinya berpindah pemilik, tanpa satu
+         unit pun bergerak di rak. Karena itu tidak ada mutasi ledger di sini.
+      2. Jatah yang MASIH MENUNGGU stok — tidak ada yang bisa dipindahkan,
+         tetapi janjinya ditutup, karena mulai sekarang pesanan itulah yang
+         memikulnya. Melewatkan langkah ini membuat satu unit yang sama antre
+         DUA KALI saat barang baru masuk.
+
+    SATU ANTREAN UNTUK DUA BENTUK JANJI. Pesanan yang disetujui melebihi stok
+    dan booking yang belum ada barangnya sama-sama "sudah dijanjikan, belum
+    ada barangnya". Keduanya mengantre di deret yang sama, urut KAPAN JANJINYA
+    DIBUAT. Memberi salah satunya prioritas mutlak salah dengan sendirinya:
+    booking kemarin akan menyalip pesanan yang menunggu tiga minggu, atau
+    sebaliknya. Yang bisa dijelaskan ke customer hanya satu — siapa yang
+    dijanjikan lebih dulu, dia dilayani dulu.
+
+    TIDAK PERNAH DILEPAS OTOMATIS, sekalipun tanggal butuhnya lewat. Melepas
+    jatah customer diam-diam adalah masalah yang lebih besar daripada booking
+    yang menua; yang lewat tenggat disorot di layar, pelepasannya selalu
+    keputusan orang, dan pembatalan wajib beralasan.
+
+    IZIN: Logistik, BUKAN Sales. Yang ditahan adalah stok gudang, dan tiap
+    unit yang dibooking langsung hilang dari angka yang boleh dijanjikan ke
+    pelanggan lain. Membuka pintu itu ke Sales berarti siapa pun bisa mengunci
+    stok untuk pelanggannya sendiri tanpa gudang tahu.
+
+    DIUJI: tests/Feature/Wms/ProductBookingTest.php (15 test).
+
+  SUSULAN: RIWAYAT OUTSTANDING & PEMBATALAN YANG BERTAHAN
+  (permintaan pemilik produk, bukan PRD)
+  Migration: create_sales_order_outstandings_table (termasuk backfill)
+  Berkas: App\Models\SalesOrderOutstanding,
+          App\Support\Outbound\OutstandingRecorder,
+          App\Http\Controllers\Wms\OutstandingController,
+          OrderApprovalController::{tulisRincian,history},
+          Shipment::catatQtyTerkirim
+
+    SATU AKAR, DUA KELUHAN. Keduanya lahir dari kebiasaan menyimpan riwayat
+    di kolom yang menyimpan keadaan sekarang, lalu menimpanya:
+
+      1. sales_order_details.outstanding_qty ditimpa setiap Surat Jalan
+         berangkat dan dinolkan saat pesanan dibatalkan, sehingga "PO itu
+         dulu kurang berapa" tidak bisa dijawab lagi begitu kekurangannya
+         tertutup.
+      2. Kolom pembatalan di sales_orders SENGAJA dibersihkan saat pesanan
+         diterima ulang — supaya keadaan sekarangnya jujur — dan akibatnya
+         PO yang sudah tiga kali batal terlihat sama bersihnya dengan yang
+         mulus sejak awal.
+
+    Keluhan 2 ternyata BUKAN kehilangan data: sales_order_cancellations sudah
+    menyimpan seluruhnya sejak SUSULAN TAHAP 1. Yang hilang hanya jalannya ke
+    layar — history() menyaring lewat cancelled_at, kolom yang justru baru
+    saja dibersihkan. Perbaikannya menyaring lewat tabel riwayatnya
+    (orWhereHas('cancellations')), bukan menambah kolom baru.
+
+    PEMBAGIAN TUGAS YANG DIJAGA KETAT:
+      Berapa kurangnya SEKARANG   -> sales_order_details.outstanding_qty
+      Pernah kurang berapa, kapan -> sales_order_outstandings (append-only)
+    Halaman Outstanding membaca KEDUANYA dan tidak pernah bisa berselisih,
+    karena masing-masing angka hanya punya satu sumber. Kolom "sisa sekarang"
+    dibaca hidup dari baris pesanannya; angka di baris riwayat adalah
+    cuplikan masa lalu dan memang tidak ikut berubah.
+
+    DICATAT SAAT BERUBAH, BUKAN SETIAP KALI DILEWATI. Pesanan 10 disetujui 5
+    menghasilkan satu baris saat diterima; ketika 5 itu berangkat, Shipment
+    menghitung ulang dan mendapat angka yang sama. Tanpa penjagaan ini satu
+    kekurangan tampil dua kali dan pembacanya menyimpulkan pesanan itu
+    bermasalah berulang. Aturannya ada di OutstandingRecorder saja, supaya
+    kedua pemanggilnya tidak diam-diam berbeda.
+
+    YANG SENGAJA TIDAK DICATAT:
+      - Menyetujui MELEBIHI stok. Itu janji yang belum punya cadangan
+        ("menunggu stok"), bukan kewajiban yang tidak dipenuhi — barangnya
+        ada di gudang, hanya belum di-putaway.
+      - Pembatalan. Pesanannya kembali ke antrean dan akan dinilai ulang dari
+        awal; mencatat seluruh qty-nya sebagai kekurangan berarti menghitung
+        dua kali begitu penerimaan berikutnya jalan. Jejaknya sudah lengkap
+        di sales_order_cancellations.
+
+    BACKFILL DI MIGRASINYA, bukan perintah terpisah. Halaman yang lahir
+    kosong padahal pesanan kurang sudah berjalan lama akan dibaca sebagai
+    "tidak ada yang kurang" — salah paham yang paling mahal. Waktunya diambil
+    dari approved_at supaya baris lama tidak menumpuk di puncak riwayat.
+
+    IZIN: menumpang OUTBOUND_APPROVAL, bukan izin baru. Kekurangan LAHIR dari
+    keputusan penerimaan, jadi yang berwenang mengambil keputusan itu memang
+    harus bisa melihat akibatnya — berbeda dari karantina, yang perannya
+    memang berbeda dari koreksi stok sehingga di sana izinnya dipisah.
+
+    DIUJI: tests/Feature/Wms/OutstandingHistoryTest.php (16 test).
+
+  KOREKSI: PESANAN YANG DIPICKING LEBIH DARI SATU KALI
+  (temuan lapangan pemilik produk)
+  Berkas: PickingListItem::scopeForOrderRound, Shipment::{qtyTerpicking,
+          bandingkan,skuTidakCocok,stokUntukMenutupi},
+          PickingRun::{kembalikanHasilPicking,kembalikanSebagian}
+
+    GEJALANYA: layar Siap Kirim melaporkan "diambil dari rak 53" untuk barang
+    yang nyatanya dipicking 3. Angka itu 50 dari putaran picking pertama —
+    pesanannya sudah dibatalkan dan barangnya sudah lama kembali ke rak —
+    ditambah 3 dari putaran sekarang.
+
+    AKARNYA: satu pesanan bisa dipicking BERKALI-KALI. Pesanan yang
+    dibatalkan kembali ke antrean, lalu diterima dan dipicking lagi di daftar
+    baru. Baris picking putaran lama sengaja TIDAK dihapus — ia riwayat
+    daftar picking yang sudah selesai dikerjakan — tetapi empat kueri mencari
+    baris picking lewat sales_order_id saja, seolah satu pesanan hanya punya
+    satu putaran seumur hidupnya.
+
+    YANG JAUH LEBIH BERBAHAYA DARIPADA ANGKA DI LAYAR: pengembalian stok saat
+    pembatalan memakai kueri yang sama persis. Pembatalan KEDUA akan
+    mengembalikan barang putaran pertama sekali lagi — stok bertambah dari
+    ketiadaan, ledger tetap terlihat rapi karena mutasinya memang ditulis,
+    dan selisihnya baru ketahuan saat stocktake. Diperiksa di basis data
+    produksi saat perbaikan ini dibuat: baru satu pesanan yang berputar dua
+    kali dan belum pernah dibatalkan lagi, jadi stok hantunya belum sempat
+    terjadi. Cacatnya laten, bukan sudah menagih korban.
+
+    PENANDA PUTARAN: sales_orders.picking_list_id. Ia dikosongkan saat
+    pembatalan dan diisi lagi saat pesanan masuk daftar baru, sehingga selalu
+    menunjuk putaran yang sedang berjalan. Pesanan tanpa daftar berarti tidak
+    ada putaran berjalan, dan scope-nya sengaja tidak mengembalikan apa pun
+    alih-alih diam-diam jatuh ke seluruh riwayat.
+
+    DIUJI: tests/Feature/Wms/RepeatPickingTest.php (4 test). Dua di antaranya
+    diperiksa GAGAL lebih dulu tanpa perbaikannya — yang satu menghasilkan
+    angka 53 yang persis dilaporkan, yang satu mengembalikan 53 unit ke rak
+    yang seharusnya hanya 3.
+
+  SUSULAN: PESANAN DITOLAK BISA DIPERBAIKI & DIAJUKAN ULANG
+  (permintaan pemilik produk, bukan PRD)
+  Migration: create_sales_order_rejections_table (termasuk backfill)
+  Berkas: App\Models\SalesOrderRejection,
+          SalesOrder::{rejections,bolehDiperbaiki,sedangDitolak},
+          SalesOrderController::{edit,update,tandaiTerkirim},
+          OrderApprovalController::{reject,index,show,history}
+
+    KEADAAN SEBELUMNYA: penolakan adalah jalan buntu. Pesanan 50 baris yang
+    ditolak karena satu item keliru memaksa Sales mengetik ulang seluruhnya
+    sebagai pesanan baru — dan pesanan barunya tidak punya hubungan apa pun
+    dengan yang ditolak, sehingga Logistik tidak pernah tahu ia sedang
+    menilai pengajuan kedua atas hal yang sama.
+
+    DUA HAL YANG HARUS BERJALAN BERSAMA, dan itulah sebabnya tabelnya
+    dipisah — polanya sama persis dengan sales_order_cancellations:
+      1. Begitu diajukan ulang, penanda penolakan di `sales_orders`
+         DIBERSIHKAN. Pesanan itu sedang menunggu dinilai, bukan sedang
+         ditolak, dan keadaan sekarangnya harus jujur.
+      2. Fakta bahwa ia pernah ditolak TIDAK ikut hilang. Permintaan pemilik
+         produk: catatan itu melekat "sampai akhir", termasuk sesudah
+         pesanannya diterima dan selesai.
+    Keduanya mustahil hidup bersama di satu kolom.
+
+    bolehDiperbaiki() SENGAJA TIDAK DISATUKAN dengan isEditable(). Yang boleh
+    DIHAPUS tetap hanya draft: pesanan yang pernah ditolak membawa riwayat
+    yang harus bertahan, dan menghapusnya menghapus jejak itu juga.
+
+    NOMOR PENGAJUAN DISIMPAN, bukan dihitung dari jumlah baris saat
+    ditampilkan — nomor yang bergeser sendiri membuat "ditolak pada pengajuan
+    ke-2" berubah arti belakangan.
+
+    DIBAWA KE TEMPAT KEPUTUSAN DIAMBIL, bukan sekadar disimpan: alasan
+    penolakan lama muncul di formulir perbaikan milik Sales DAN di layar
+    penilaian milik Logistik, dan antrean penerimaan menandai "Pengajuan
+    ke-N" sejak sebelum layarnya dibuka. Riwayat yang hanya tersimpan di
+    tempat yang tidak dilihat saat keputusan diambil sama saja dengan tidak
+    ada.
+
+    DIUJI: tests/Feature/Sales/OrderResubmissionTest.php (12 test).
+
+  KOREKSI ISTILAH: "BUBARKAN" -> "BATALKAN" pada daftar picking
+  (permintaan pemilik produk)
+
+    Seluruh "bubarkan/dibubarkan/pembubaran" pada alur picking diganti
+    "batalkan/dibatalkan/pembatalan", termasuk nama metode
+    (PickingList::bolehDibatalkan) supaya kode dan layar tidak berbeda kata
+    untuk hal yang sama. Tombolnya ditulis "Batalkan DAFTAR": di sistem ini
+    "batalkan" juga dipakai untuk membatalkan PESANAN, dan yang dibatalkan di
+    sini hanya susunan daftar pickingnya — pesanannya kembali ke antrean,
+    tidak ikut batal.
+
+FASE 7 — PENOLAKAN CUSTOMER (barang ditolak saat pengiriman) — SELESAI
+  Migration: sales_returns, sales_return_details (+ FK susulan
+             inventory_stocks.sales_return_detail_id)
+  Berkas: App\Support\Returns\CustomerRejection,
+          App\Models\{SalesReturn,SalesReturnDetail},
+          Wms\CustomerRejectionController, Sales\SalesOrderController::reportReturn,
+          StockActivator::activateReturn, DocumentNumber::forSalesReturn,
+          wms/inbound/{returns,return-detail}.blade.php, CustomerRejectionTest
+
+  NAMANYA DIGANTI, DAN ITU BUKAN SOAL SELERA. Rencana awal menyebutnya
+  "Retur" dengan menu "Penerimaan Retur". Istilah itu tidak menyebut
+  peristiwanya: yang terjadi adalah CUSTOMER MENOLAK barang di depan
+  tokonya. Menu kini "Penolakan Customer" — permintaan pemilik produk.
+
+  BUKAN MENUMPANG sales_order_rejections. Tabel itu namanya mirip tetapi
+  mencatat LOGISTIK menolak pesanan sebelum barang bergerak sedikit pun.
+  Yang ini kebalikannya. Satu tidak menyentuh stok, satunya mengembalikan
+  barang fisik ke rak; menyatukannya membuat setiap query "berapa kali
+  pesanan ditolak" menjawab dua pertanyaan sekaligus.
+
+  EMPAT LANGKAH, EMPAT ORANG:
+    1. report()   Sales, di depan toko, bersamaan dengan unggah foto SJ.
+    2. approve()  Logistik menilai KLAIMNYA — barang masih di atas truk.
+    3. putaway()  Operator menaikkan ke rak, memisah yang bagus dari DDP.
+    4. verify()   Logistik menilai BARANGNYA. DI SINI stok bertambah.
+
+  KENAPA LOGISTIK DUA KALI — pertanyaan dikonfirmasi pemilik produk, dijawab
+  "verifikasi penuh". Kedua sentuhan menjawab hal berbeda dan tidak bisa
+  saling menggantikan: saat approve() barangnya belum dilihat siapa pun,
+  yang diperiksa cocok tidaknya klaim dengan Surat Jalan; saat verify() yang
+  diperiksa barang fisiknya. Yang membuat langkah 4 wajib adalah pemisahan
+  bagus/DDP — keputusan bernilai uang di KEDUA arah: menandai barang bagus
+  sebagai DDP menyembunyikan kehilangan, menandai barang rusak sebagai bagus
+  menjualnya ke customer berikutnya. Pola yang sama dengan STOCKTAKE_COUNT
+  vs STOCKTAKE_MANAGE. Barang tolakan juga jalur masuk PALING BERISIKO
+  (sudah naik truk, dibongkar, ditolak), bukan paling ringan — dan
+  membebaskannya dari verifikasi menjadikannya satu-satunya cara memasukkan
+  stok tanpa pemeriksaan.
+
+  STOK TIDAK BERGERAK SAMA SEKALI SEBELUM verify(). Langkah 1-3 hanya
+  menulis catatan. Dikunci test yang menghitung sum(qty_available) dan
+  count(stock_movements) sebelum/sesudah put-away.
+
+  BATCH DAN UMURNYA IKUT PULANG. production_date disalin dari baris picking
+  yang benar-benar diambil dari rak, bukan diisi hari ini: umur barang tidak
+  mundur karena ia sempat pulang, dan tanggal baru membuat barang lama
+  terbaca muda lalu mengantre paling belakang di FIFO. Batch yang tidak
+  ketemu DILEMPAR, bukan ditebak.
+
+  TIGA ANGKA DISIMPAN TERPISAH: qty_rejected (kata Sales), qty_approved
+  (kata Logistik), qty_good + qty_ddp (yang sampai di rak). Ketiganya boleh
+  berbeda dan perbedaannya justru yang perlu dilihat.
+
+  IZIN DIPECAH TIGA: RETURN_VIEW (semua yang terlibat, termasuk Operator —
+  ia perlu tahu ada barang menunggu tanpa ditelepon), RETURN_APPROVE
+  (Logistik/Manager/SA: setujui + verifikasi), RETURN_PUTAWAY (Operator).
+  INBOUND_RETURNS dihapus. InboundController::returnsIndex/processReturn
+  yang masih dummy ikut dihapus, bukan dibiarkan.
 
 FASE 8 — Billing (Penagihan)
   Migration: customer_billings, billing_payments
@@ -1013,26 +2090,453 @@ FASE 8 — Billing (Penagihan)
   customer = PERINGATAN VISUAL saja, BUKAN blokir order (lihat docs/1 §6.6,
   keputusan yang sudah dikonfirmasi user sebelumnya).
 
-FASE 9 — Tracking, Notifikasi Real-time, Audit Log
-  Migration: order_trackings, notifications, audit_logs
-  Ruang lingkup: docs/1 §6.8, §6.9. Wire NotificationController + broadcast
-  via Soketi (sudah jalan di docker-compose). Audit log mencatat aksi
-  sensitif (create/update/deactivate user, approve order, dst).
+FASE 9 — Notifikasi & Log Aktivitas — SELESAI
+  Berkas: notifications (migrasi + model + App\Support\Notifier),
+          App\Console\Commands\PurgeActivityLogs, NotificationController,
+          partials/navbar-top.blade.php, wms/notifications.blade.php,
+          NotificationTest
 
-FASE 10 — Pengaturan Sistem & Penomoran Dokumen
-  Migration: system_settings, document_sequences
-  Ruang lingkup: wire app/Http/Controllers/Wms/AdminController::sequence()
-  (view resources/views/wms/admin/sequence.blade.php sudah ada, masih dummy)
-  ke tabel document_sequences untuk penomoran otomatis SJ/faktur/dsb.
+  TABEL audit_logs TIDAK DIBUAT — keputusan pemilik produk, menyimpang dari
+  rencana awal. Sistem sudah punya activity_logs yang append-only, sudah
+  dipakai, dan sudah punya halaman audit khusus Super Admin. Tabel kedua
+  dengan tujuan sama berarti dua tempat yang harus dilihat orang saat
+  menelusuri SATU kejadian, dan suatu hari salah satunya akan ketinggalan.
+  Yang dilakukan: MEMPERLUAS cakupan activity_logs.
+
+  CAKUPANNYA DULU HANYA 6 DARI 23 CONTROLLER. Yang tercatat cuma urusan
+  stok, booking, stocktake, picking, dan retur — sementara persetujuan
+  pesanan, input produksi, put-away, verifikasi, pengiriman, bukti Surat
+  Jalan, transfer gudang, pengelolaan akun, dan master data tidak
+  meninggalkan jejak sama sekali. Ditambahkan 23 nama tindakan baru.
+
+  RETENSI 90 HARI — keputusan pemilik produk. Angkanya di
+  ActivityLog::UMUR_SIMPAN_HARI supaya halaman log bisa MENGATAKANNYA:
+  orang yang mencari kejadian empat bulan lalu berhak tahu bahwa yang ia
+  cari memang sudah dibuang, bukan menyimpulkan sendiri bahwa kejadiannya
+  tidak pernah tercatat.
+
+  PEMBERSIHAN TIDAK LEWAT MODEL, dan itu bukan kebetulan. booted() melempar
+  RuntimeException pada setiap delete; perintah activity:purge menembus
+  lewat query builder sehingga ia HANYA bisa menghapus menurut UMUR. Tidak
+  ada jalan menghapus satu baris tertentu dari mana pun di sistem — yang
+  dijaga bukan pembersihan berkala, melainkan orang yang menghilangkan
+  jejak dirinya sendiri. Dipotong per 1000 lewat subquery id, karena
+  PostgreSQL tidak mengenal DELETE ... LIMIT dan Laravel diam saja
+  menjatuhkan limitnya.
+
+  NOTIFIKASI = LONCENG SAJA, bukan Soketi. Keputusan pemilik produk.
+  WebSocket berarti satu proses lagi yang harus dijaga hidup di produksi,
+  dan yang dibutuhkan cuma "ada yang perlu saya kerjakan" — itu tidak
+  menuntut ketepatan detik.
+
+  LONCENG BUKAN LOG, dan keduanya sengaja tidak digabung. Log mencatat
+  SEMUA tindakan dan dibaca Super Admin saat menelusuri sesuatu yang sudah
+  terjadi; notifikasi hanya yang menuntut orang LAIN bergerak, dibaca
+  pemiliknya sendiri, dan HABIS begitu ditindaklanjuti. Menyamakan keduanya
+  berarti lonceng berbunyi untuk setiap perubahan master data, dan orang
+  berhenti membukanya dalam seminggu.
+
+  PENERIMA DIPILIH LEWAT Permission::MATRIX, bukan nama peran. Menuliskan
+  "kirim ke logistik dan manager" di Notifier berarti dua daftar yang harus
+  sepakat, dan suatu hari peran baru ditambahkan di satu tempat saja — lalu
+  ada orang yang halamannya bisa dibuka tetapi loncengnya tidak pernah
+  berbunyi. Batas gudang ikut berlaku; akun tanpa gudang (Super Admin)
+  menerima semuanya.
+
+  TIDAK MENGIRIM KE DIRI SENDIRI. Yang baru menekan tombolnya sudah melihat
+  pesan hijau di layarnya; lonceng untuk pekerjaan sendiri hanya melatih
+  orang mengabaikan loncengnya.
+
+  RUTENYA DI LUAR KEDUA PORTAL, alasan yang sama persis dengan /profile.
+  Sebelumnya di dalam prefix /wms, sehingga Tim Sales — yang dipagari
+  keluar oleh middleware portal:wms — tidak akan pernah bisa membuka
+  loncengnya sendiri, padahal merekalah yang paling butuh diberi tahu
+  pesanannya disetujui atau ditolak.
+
+  DUA KEBOHONGAN AKTIF DIHAPUS, sejenis dengan simulateUploadBukti() di
+  Fase 11. Lonceng di navbar berisi dua kartu karangan dengan titik merah
+  yang menyala selamanya, dan tombol "Tandai Semua Dibaca" hanya
+  memunculkan jendela "Berhasil" tanpa menyentuh apa pun — loncengnya tetap
+  merah sesudah ditekan. Titik merah yang tidak pernah padam adalah titik
+  merah yang berhenti dibaca orang.
+
+  order_trackings TIDAK DIBUAT: status pesanan sudah punya stepper di
+  halaman detail Sales yang membacanya dari kolom waktu pesanan itu
+  sendiri. Tabel terpisah berarti dua sumber kebenaran untuk satu keadaan.
+
+FASE 10 — Pengaturan Sistem & Penomoran Dokumen — SELESAI
+  Berkas: system_settings (migrasi + model + App\Support\Settings),
+          AdminController::{settings,updateSettings,sequence},
+          wms/admin/{settings,sequence}.blade.php, SystemSettingsTest
+
+  DUA HALAMAN, DUA SIFAT YANG SENGAJA BERBEDA.
+
+  SETELAN OPERASIONAL BISA DIUBAH — dan sengaja HANYA LIMA. Tiap setelan
+  adalah satu keadaan lagi yang harus dipikirkan setiap kali ada yang aneh:
+  "ini bug, atau memang begitu setelannya?". Yang masuk wajib lolos tiga
+  ujian sekaligus: (1) keputusan BISNIS bukan teknis, (2) nilainya memang
+  berubah dari waktu ke waktu, (3) salah isi TIDAK merusak sistem — cuma
+  membuat perilakunya berbeda.
+
+    jam cutoff order (15) · ambang peringatan kedaluwarsa (90 hari) ·
+    ambang karantina hampir lepas (7 hari) · maksimal foto bukti (3) ·
+    umur simpan log aktivitas (90 hari)
+
+  PENOMORAN DOKUMEN JADI BACA-SAJA, dan itu keputusan rancangan — bukan
+  pekerjaan yang belum selesai. Halaman lamanya menyodorkan kolom prefix
+  ("PO-{YYYY}-{MM}-") dan "nomor urut berikutnya" (146) yang bisa diketik;
+  nilainya karangan yang bahkan tidak cocok dengan format sungguhan
+  (PO260909001), dan tombolnya tidak menyimpan apa pun. Kebohongan ketiga
+  sejenis simulateUploadBukti() dan lonceng palsu. Membuatnya BENAR-BENAR
+  bisa diubah justru lebih berbahaya:
+
+    - Mengganti awalan di tengah jalan MEMECAH RIWAYAT jadi dua bentuk yang
+      tidak bisa dicari sekaligus. DocumentNumber::countToday() mencari
+      dengan LIKE pada prefiksnya; begitu berubah, hitungannya salah tanpa
+      suara.
+    - Menggeser nomor urut MUNDUR langsung menghasilkan nomor kembar.
+      document_sequences punya kunci unik, jadi akibatnya bukan data kotor
+      melainkan pembuatan pesanan yang BERHENTI TOTAL untuk semua orang.
+
+  Tidak ada rute POST untuk /admin/sequence, dan test menguncinya (405).
+  Yang ditampilkan keadaan apa adanya: format sungguhan yang dibaca dari
+  DocumentNumber (bukan diketik ulang di Blade), nomor terakhir yang
+  benar-benar terpakai, dan ALASAN kenapa tidak bisa diubah — supaya tidak
+  ada yang mencari tombol yang memang sengaja tidak dibuat.
+
+  SUPER ADMIN SAJA (Permission::ADMIN_SETTINGS). Manager ikut di ADMIN_USERS
+  dan ADMIN_SEQUENCE tetapi TIDAK di sini, dan alasannya cakupan bukan
+  kepercayaan: setelan ini berlaku seluruh perusahaan, sementara seluruh
+  kewenangan Manager dibatasi ke gudangnya sendiri. Manager Karawang yang
+  menggeser jam cutoff mengubah jam kerja Sales Pekanbaru yang tidak pernah
+  ia temui.
+
+  NILAI BAWAAN TINGGAL DI KODE, tabelnya hanya menyimpan yang SUDAH DIUBAH.
+  Akibat yang disengaja: setelan baru langsung hidup tanpa migrasi pengisi,
+  dan setelan yang dihapus dari daftar berhenti terbaca walau barisnya masih
+  ada. Konstanta lama (ShelfLife::WARNING_DAYS, DeliveryProof::MAKS_FOTO,
+  AdminDashboard::AMBANG_*, ActivityLog::UMUR_SIMPAN_HARI) DIGANTI metode
+  yang membaca Settings — bukan disandingkan, supaya tidak ada dua angka
+  yang suatu hari berbeda pendapat tentang hal yang sama.
+
+  SATU BARIS PER SETELAN, bukan satu baris JSON berisi semuanya: dua orang
+  yang menyimpan setelan berbeda pada detik yang sama akan saling menimpa,
+  dan yang kalah tidak akan pernah tahu setelannya hilang.
+
+  PERUBAHANNYA TERCATAT DI LOG AKTIVITAS (Fase 9) — termasuk perubahan umur
+  simpan log itu sendiri. Setelan yang menentukan berapa lama jejak disimpan
+  justru yang paling perlu meninggalkan jejak saat diubah. Menyimpan tanpa
+  mengubah apa pun TIDAK mencatat: kalau tidak, riwayatnya penuh oleh
+  perubahan yang tidak pernah terjadi.
 
 FASE 11 — Dashboard & Laporan
   Ruang lingkup: docs/1 §6.7. Wire DashboardController (admin/produksi/
   operator) dan ReportController ke query agregat dari tabel-tabel yang
   sudah dibangun Fase 1-10 — bukan angka statis.
 
-FASE 12 — E-POD (Electronic Proof of Delivery)
-  Ruang lingkup: pastikan EpodController::show/confirm terhubung ke
-  delivery_proofs (Fase 6) secara konsisten dari sisi customer-facing.
+  TAHAP 1 — DASHBOARD UTAMA — SELESAI
+  Berkas: App\Support\Reporting\AdminDashboard, DashboardController::admin,
+          wms/dashboard/admin.blade.php, DashboardAdminTest
+
+    SATU HALAMAN, TIGA SUDUT PANDANG. Dashboard utama dibuka Super Admin,
+    Manager, dan Logistik — dan yang boleh mereka lihat tidak sama.
+    Permintaan pemilik produk: "batasi per card, ada yang bisa diakses
+    Logistik ada juga yang hanya muncul kalau login sebagai admin".
+
+    KARTU DIBATASI DI TEMPAT ANGKANYA DIHITUNG, BUKAN DI BLADE. Tiap kartu
+    didaftarkan bersama izin penjaganya di AdminDashboard::kartu(), dan
+    angkanya baru dihitung kalau izinnya lolos. Menyembunyikan dengan @can
+    saja LEBIH LEMAH: datanya tetap ikut terkirim ke halaman dan bisa
+    dibaca dari "view source" — yang disembunyikan cuma kotaknya. Blade
+    memeriksa @isset($m['...']), bukan izinnya lagi.
+
+    IZINNYA MENUMPANG YANG SUDAH ADA. Tiap kartu memakai izin milik halaman
+    tujuannya (OUTBOUND_APPROVAL, INVENTORY_ADJUST, ADMIN_AUDIT, dst),
+    bukan izin baru khusus dashboard — dua daftar izin yang harus sepakat
+    tentang hal yang sama suatu hari akan berbeda pendapat, dan akibatnya
+    kartunya tampil tetapi halamannya 403.
+
+    TIGA TINGKAT, DAN GARISNYA BUKAN SOAL RAHASIA MELAINKAN SOAL PENILAIAN:
+      - Alur harian (semua): antrean approval, picking, pengiriman, bukti
+        kirim, verifikasi inbound, outstanding, kedaluwarsa, karantina.
+      - Pengawasan (Manager & Super Admin): koreksi stok 30 hari, selisih
+        stocktake terakhir, jumlah pengguna. Ini angka untuk MENILAI
+        pekerjaan gudang, dan Logistik adalah yang dinilai.
+      - Log aktivitas (Super Admin saja) — alasan di Permission::ADMIN_AUDIT.
+
+    BATAS GUDANG BERLAKU DI SINI JUGA. Dashboard satu-satunya layar yang
+    menjumlahkan segalanya sekaligus, jadi justru paling mudah membocorkan
+    angka gudang lain. Semua metrik lewat WarehouseScope::apply.
+
+  TAHAP 2 — DASHBOARD PRODUKSI & OPERATOR — SELESAI
+  Berkas: App\Support\Reporting\{ProductionDashboard,OperatorDashboard},
+          DashboardController::{produksi,operator},
+          wms/dashboard/{produksi,operator}.blade.php, DashboardPeranTest
+
+    ANGKA YANG MENJANJIKAN MODUL YANG TIDAK ADA DIBUANG SELURUHNYA.
+    Dashboard Produksi lama menampilkan target produksi, mesin aktif, dan
+    stok bahan baku menipis; dashboard Operator menampilkan "Stok Rak
+    Menipis" dengan tombol "Isi Ulang Rak". Tidak satu pun modulnya ada di
+    sistem ini — tidak ada tabel bahan baku, tidak ada mesin, tidak ada
+    purchasing, tidak ada replenishment rak. Angka semacam itu lebih
+    berbahaya daripada halaman kosong: ia menjanjikan sesuatu yang tidak
+    pernah dibangun, dan selama masih terpasang orang menunggu ia berubah
+    sendiri suatu hari. Dikunci oleh assertDontSee di DashboardPeranTest.
+
+    PRODUKSI — EMPAT ANGKA, DAN BATASNYA DISENGAJA. Yang ditanyakan orang
+    Produksi tiap hari cuma: serahan saya sudah naik rak belum, sudah diakui
+    gudang belum, berapa yang masuk bulan ini, dan adakah yang jumlahnya
+    berselisih saat dinaikkan. Yang terakhir paling berguna dan satu-satunya
+    kabar buruk: pallet_qty diisi Produksi, qty_actual diisi Operator, dan
+    selisihnya kalau tidak ditampilkan di sini baru ketahuan lewat stocktake
+    berbulan-bulan kemudian. Dijumlahkan MUTLAK, bukan neto.
+
+    PRODUKSI DIBATASI PER GUDANG, BUKAN PER ORANG. Serah terima pekerjaan
+    satu regu; menyaring "dokumen saya" membuat rekannya sendiri hilang.
+
+    OPERATOR — DAFTAR PEKERJAAN, BUKAN LAPORAN. Tiap kartu punya tombol.
+    Kartu yang tidak ada pekerjaannya TIDAK DIGAMBAR: "Sedang Anda Kerjakan"
+    (claimed_by = dirinya) dan "Stocktake Berjalan" hanya muncul kalau
+    memang ada. Stocktake bukan pekerjaan harian — menampilkan "0 sesi"
+    sepanjang tahun membuat orang berhenti membacanya justru pada minggu ia
+    benar-benar berisi. Dua antrean tetap (put-away & daftar picking) SELALU
+    tampil walau nol, karena di sana nol adalah kabar yang berguna.
+
+  TAHAP 3 — DASHBOARD SALES — SELESAI
+  Berkas: App\Support\Reporting\SalesDashboard,
+          App\Http\Controllers\Sales\DashboardController,
+          sales/dashboard.blade.php, DashboardSalesTest
+
+    UNGGAH BUKTI PALSU DIHAPUS — temuan paling serius di seluruh Fase 11.
+    Tombol "Upload Bukti" memanggil simulateUploadBukti(): jendela unggah
+    tiruan, spinner 1,5 detik, lalu "Berhasil! Bukti pengiriman berhasil
+    diunggah. Status pesanan akan segera di-update menjadi Selesai" — tanpa
+    mengirim apa pun ke mana pun, dan tombolnya berubah hijau "Selesai".
+    Itu bukan tampilan yang belum tersambung, itu kebohongan aktif kepada
+    orang yang lalu mengira pekerjaannya beres. Unggahan sungguhan menempel
+    di halaman detail pesanan (POST sales/orders/{order}/proofs), jadi
+    dashboard hanya menunjuk ke sana. Dikunci assertDontSee.
+
+    GRAFIK TARGET KARANGAN DIHAPUS. "Target vs Realisasi" punya garis target
+    700/minggu yang ditulis tangan di dalam JavaScript. Tidak ada tabel
+    target di sistem ini dan tidak ada tempat untuk menetapkannya. Grafik
+    yang membandingkan kenyataan dengan angka karangan lebih buruk daripada
+    tidak ada grafik. Diganti "Pesanan Dibuat vs Selesai", 6 bulan.
+
+    DISUSUN MENURUT SIAPA YANG HARUS BERGERAK BERIKUTNYA, bukan menurut
+    status. Versi lama menderetkan Dibuat/Menunggu/Dikirim/Sukses seolah
+    setara; padahal tiga hal MACET DI TANGAN SALES dan mudah terlupakan:
+      DRAFT   — belum disubmit berarti TIDAK TERLIHAT Logistik sama sekali;
+                ia tidak sedang mengantre, ia tidak ada. Digabung batas jam
+                OrderCutoff (15:00), draft yang lupa disubmit membuat
+                pelanggan mundur satu hari penuh — banner cutoff dikirim ke
+                view supaya kartunya bisa berkata tegas saat sudah lewat.
+      DITOLAK — masih bisa diperbaiki lalu diajukan ulang; dibiarkan, ia
+                diam selamanya karena tidak ada yang menagihnya.
+      BUKTI   — pesanan tidak pernah dianggap selesai sampai fotonya masuk.
+    Seluruh bagian itu tidak digambar saat kosong; diganti satu baris tenang.
+
+    OUTSTANDING IKUT DITAMPILKAN ke Sales karena SALES yang ditelepon
+    pelanggan saat barang tidak lengkap, bukan gudang. Angkanya sama dengan
+    menu Outstanding milik Logistik, hanya dipersempit ke pesanan sendiri.
+
+    SEMUA LEWAT scopeOwnedBy — Sales tidak pernah melihat pesanan rekannya.
+
+    Rute /sales/dashboard yang tadinya closure `return view(...)` di
+    routes/web.php kini punya controller sendiri.
+
+  TAHAP 4 — LAPORAN & EKSPOR — SELESAI
+  Berkas: App\Support\Reporting\{ReportCatalog,ReportRunner},
+          App\Support\Export\XlsxWriter, ReportController,
+          wms/reports/{index,show}.blade.php, ReportTest
+
+    KEBOHONGAN AKTIF KEEMPAT DIHAPUS, setelah simulateUploadBukti(), lonceng
+    palsu, dan penomoran dokumen yang bisa diketik. Halaman lamanya memajang
+    empat kartu dengan DELAPAN tombol unduh yang seluruhnya hanya memanggil
+    alert('Mempersiapkan File Excel...'), dan rentang tanggalnya diketik
+    tangan di dalam Blade (2026-08-01 s/d 2026-08-31) tanpa tersambung ke
+    apa pun. Dikunci assertDontSee di ReportTest.
+
+    DELAPAN LAPORAN, satu registri (ReportCatalog) yang dibaca kartu, judul
+    berkas, izin, dan penjelasan sekaligus — supaya kartunya tidak pernah
+    berkata "berdasarkan tanggal kirim" sementara query-nya menyaring
+    tanggal selesai:
+      penjualan-selesai · pesanan-outstanding · produk-terlaris ·
+      pelanggan-teratas · kinerja-sales · pengiriman · posisi-stok ·
+      pergerakan-stok
+
+    SEMUANYA KUANTITAS, BUKAN RUPIAH, dan itu DIKATAKAN di layar. Tidak ada
+    satu pun kolom harga di seluruh basis data ini, jadi "penjualan" berarti
+    barang yang keluar. Dibiarkan tidak dikatakan, yang membuka berkasnya
+    akan mencari kolom nilai dan menyimpulkan datanya rusak.
+
+    BERKALA vs POTRET, dan bedanya ditegakkan sampai ke berkasnya. Laporan
+    potret (outstanding, posisi stok) TIDAK menggambar kolom tanggal sama
+    sekali — bukan menggambarnya dalam keadaan mati — dan tanggal yang tetap
+    dipaksakan lewat URL dibuang di controller. Berkas bertuliskan "Periode
+    1-30 September" yang isinya keadaan hari ini adalah salah paham yang
+    paling sulit dibantah, karena keterangannya tertulis di berkasnya
+    sendiri.
+
+    PRATINJAU DULU, BARU UNDUH. 25 baris di layar beserta JUMLAH BARIS
+    SEBENARNYA. Mengunduh dengan mata tertutup lalu mendapati isinya kosong
+    atau salah rentang adalah putaran mahal — apalagi kalau berkasnya sudah
+    terlanjur diteruskan. Layar dan berkas dihitung METODE YANG SAMA; yang
+    berbeda hanya batas barisnya (25 vs 20.000).
+
+    HANYA XLSX, TIDAK ADA PDF. Tombol PDF lama juga cuma alert(), jadi tidak
+    ada yang hilang — tetapi PDF memang bentuk yang salah: yang mengunduh
+    laporan penjualan ingin menyaring dan mem-pivot, dan angka tidak bisa
+    dikeluarkan lagi dari PDF. Angka ditulis bertipe NUMERIC, sisanya
+    DIPAKSA teks (batch "0012" kehilangan nolnya kalau ditebak Excel).
+
+    RENTANG 'sampai' DINAIKKAN KE AKHIR HARI. Tanpa itu memilih 1-30
+    September membuang seluruh isi tanggal 30, dan laporannya tetap terlihat
+    wajar — cuma kurang sehari. Rentang terbalik DILURUSKAN, bukan ditolak.
+
+    UNDUHAN TERCATAT (ActivityLog::REPORT_EXPORT). Satu berkas berisi data
+    pelanggan beserta volume pembeliannya bisa beredar selamanya setelah
+    keluar sekali. Yang dicatat bukan pembacaan di layar, melainkan momen
+    datanya MENINGGALKAN sistem. Berkas yang terpotong pada 20.000 baris
+    mengaku di dalam berkasnya sendiri, bukan cuma di layar.
+
+    BATAS GUDANG BERLAKU DI BERKAS JUGA — dikunci test tersendiri. Kebocoran
+    lewat Excel tidak bisa ditarik kembali.
+
+    IZINNYA SAMA SEMUA (REPORTS_VIEW) dan itu disengaja. Sempat terpikir
+    menjaga laporan stok dengan INVENTORY_VIEW; itu akan jadi pembatasan
+    PALSU karena ketiga peran yang bisa membuka halaman ini sudah
+    memegangnya. Kolom `izin` tetap ada dan sungguh diperiksa, jadi
+    mempersempit satu laporan cukup mengganti satu nilai.
+
+    PAPAN PERINGKAT MASUK DASHBOARD (kartu 'terlaris': 5 produk + 5
+    pelanggan, 30 hari, izin REPORTS_VIEW). Angkanya DIHITUNG ULANG LEWAT
+    ReportRunner yang sama, bukan query sendiri — kalau tidak, satu
+    perbedaan kecil sudah cukup membuat sebuah produk nomor satu di layar
+    tetapi nomor tiga di berkas Excel, tanpa cara menebak mana yang benar.
+    Dikunci test yang membandingkan kedua urutan.
+
+TAMBAHAN — BUAT PESANAN JALUR INTERNAL (Admin & Manager) — SELESAI
+  Berkas: migrasi placed_by/placed_reason pada sales_orders,
+          App\Support\Outbound\OrderComposer, InternalOrderController,
+          InternalOrderRequest, wms/outbound/internal-order.blade.php,
+          Permission::OUTBOUND_ORDER_INTERNAL, InternalOrderTest
+
+  PERMINTAAN PEMILIK PRODUK: "fitur pemesanan seperti Sales tapi hanya admin
+  dan manager yang bisa mengakses, untuk menghindari hal-hal tertentu dari
+  sales".
+
+  MELANGGAR PRD §5.2 DENGAN SENGAJA, dan itu diberitahukan lebih dulu: di
+  sana "Akses Portal Sales (Buat PO)" bernilai ❌ untuk SEMUA peran
+  Warehouse/Admin. Yang dibangun BUKAN celah ke portal itu — middleware
+  portal:sales tetap menolak Admin, dan ada test yang menguncinya. Ini pintu
+  TERPISAH di sisi WMS.
+
+  DUA PERTANYAAN DITANYAKAN LEBIH DULU karena jawabannya mengubah bentuk
+  fiturnya, dan keduanya dijawab pemilik produk:
+    1. Atas nama siapa?      -> DIPILIHKAN SALES-NYA.
+    2. Boleh menyetujui
+       pesanannya sendiri?   -> BOLEH.
+
+  Keberatan atas jawaban ke-2 disampaikan sebelum ditanyakan (satu orang
+  memegang seluruh rantai) dan pemilik produk tetap memilihnya. Karena
+  pemisahan pembuat–penyetuju dengan demikian TIDAK LAGI menjaga apa pun,
+  jejaknya dikuatkan sebagai satu-satunya kontrol yang tersisa:
+
+    - sales_orders.placed_by    siapa yang MENGETIK. NULL = Sales sendiri.
+    - sales_orders.placed_reason alasan wajib, min 10 huruf.
+    - CHECK placed_by <> user_id (mewakili diri sendiri itu kebisingan)
+      dan CHECK keduanya hidup-mati bersama — ditegakkan BASIS DATA, bukan
+      cuma PHP, supaya jalur baru yang lupa memanggilnya tetap ditolak.
+    - ActivityLog::ORDER_PLACED_INTERNAL, jenis TERSENDIRI. Digabung ke
+      ORDER_SUBMIT, yang jarang tenggelam di antara yang biasa dan penyaring
+      log tidak bisa memisahkannya lagi.
+    - SALES-NYA DIBERI TAHU lewat lonceng, dan alasannya tertulis di layar
+      detail pesanannya. Ia satu-satunya orang di luar rantai yang bisa
+      menyadari kalau ada yang tidak beres; pesanan yang muncul tanpa
+      penjelasan justru membuatnya diam.
+    - Layar Terima Pesanan menandai "dibuatkan" DI SEBELAH nama Sales,
+      bukan di kotak terpisah: yang membaca baris itu sedang menyimpulkan
+      "ini pesanan si A", dan koreksinya harus datang di detik yang sama.
+
+  user_id TIDAK DITIMPA. Godaan termudahnya mengisi user_id dengan Sales-nya
+  lalu selesai — hasilnya catatan yang berbohong di setiap layar, setiap
+  laporan, dan setiap penelusuran sengketa.
+
+  LOGISTIK SENGAJA TIDAK DAPAT (izin sendiri, bukan menumpang
+  OUTBOUND_APPROVAL). Merekalah yang menilai pesanan.
+
+  CUTOFF TETAP BERLAKU. Cutoff ada untuk perencanaan picking, bukan untuk
+  mendisiplinkan Sales; membebaskan jalur ini darinya membuka cara
+  mengacaukan rencana picking yang tidak pernah disepakati — dan karena
+  jalur ini tidak lewat Sales, tidak ada yang akan protes.
+
+  TIDAK ADA UBAH/HAPUS di jalur ini: menyunting pesanan yang tercatat atas
+  nama orang lain tanpa orang itu tahu jauh melewati yang diminta.
+
+  OrderComposer LAHIR DARI SINI. Begitu ada dua pintu ke pembentukan
+  pesanan, cara membentuknya diangkat ke satu tempat — kalau tidak, kapan
+  SLA mulai dihitung dan siapa yang diberi tahu akan berbeda pendapat
+  suatu hari. SalesOrderController ikut memakainya.
+
+FASE 12 — E-POD (Electronic Proof of Delivery) — SELESAI
+  Berkas: migrasi arrival_photo_* pada delivery_notes,
+          App\Support\Outbound\ArrivalPhoto, EpodController::confirm,
+          Shipment::confirmDelivery, driver/epod.blade.php,
+          DeliveryController::arrivalPhoto, ShipmentTest
+
+  LUBANG YANG DITUTUP. Supir bisa menekan "Barang Sudah Sampai" TANPA
+  lampiran apa pun. Tidak ada yang membedakan barang yang benar-benar
+  diterima pelanggan dari barang yang masih ada di bak mobil, selain
+  perkataan supir yang hari itu mungkin bukan karyawan perusahaan ini.
+
+  KAMERA DI DALAM HALAMAN, BUKAN PEMILIH BERKAS (permintaan pemilik produk:
+  "foto live saat itu bukan melalui lampiran file"). getUserMedia membuka
+  kamera belakang di dalam halaman, gambarnya dibentuk dari cuplikan kamera
+  lalu dijejalkan ke input berkas lewat DataTransfer. Dikecilkan ke maks
+  1600px: supir sering bersinyal seadanya, dan foto 12 MP yang gagal
+  terkirim sama tidak bergunanya dengan tidak ada foto.
+
+  TOMBOL KIRIM MATI SAMPAI ADA FOTONYA — bukan menampilkan galat setelah
+  ditekan, karena saat itu supir sudah telanjur mengira pekerjaannya selesai.
+
+  APA YANG TIDAK BISA DIJAMIN, DAN ITU DIAKUI. Tidak ada teknologi web yang
+  bisa membuktikan sebuah gambar berasal dari kamera; peramban tidak
+  menandatangani jepretan. Karena itu TIDAK ada label "terverifikasi
+  kamera" — yang ada kolom arrival_photo_source ('camera' | 'file') yang
+  menyimpan asalnya apa adanya, dan waktunya diambil dari jam SERVER (jam HP
+  supir bisa disetel mundur). Layar Surat Jalan menampilkan keduanya
+  berbeda: "Dijepret di lokasi" (hijau) vs "Dari berkas HP" (kuning).
+
+  JALUR CADANGAN SENGAJA ADA. Kamera dalam halaman hanya hidup di HTTPS dan
+  setelah izin diberikan. Tanpa jalur cadangan (input capture=environment),
+  satu penolakan izin di HP supir membuat barang yang sudah diterima
+  pelanggan menggantung selamanya di status "dalam pengiriman". Menghukum
+  seluruh alur karena satu izin peramban bukan pengerasan, itu kerusakan.
+  ==> CATATAN GO-LIVE: di http biasa, SELURUH konfirmasi jatuh ke jalur
+      cadangan. HTTPS wajib sebelum ini benar-benar berlaku sebagaimana
+      dimaksud.
+
+  TIDAK DITITIPKAN KE delivery_proofs, dan itu penting. Tabel itu memuat
+  foto Surat Jalan BERTANDA TANGAN milik Sales yang diverifikasi Logistik,
+  dan CustomerRejection::bolehMelapor() membuka formulir penolakan pelanggan
+  hanya kalau ada barisnya. Menaruh foto supir di sana akan membuat pesanan
+  terlihat sudah berbukti padahal Surat Jalan bertanda tangannya belum ada.
+
+  ATURANNYA DI Shipment::confirmDelivery, BUKAN HANYA DI CONTROLLER —
+  halaman supir bukan satu-satunya pintu ke metode itu. Ditambah CHECK
+  constraint di basis data (status <> 'delivered' OR foto IS NOT NULL)
+  dengan NOT VALID: pengiriman lama yang sudah terlanjur dikonfirmasi
+  memang tidak punya fotonya dan tidak akan pernah punya. Memaksa
+  memvalidasinya berarti memilih antara migrasi yang gagal di produksi atau
+  MENGARANG foto untuk pengiriman lama.
+
+  FOTO KONFIRMASI YANG DITOLAK IKUT DIBUANG. Berkas yatim yang tidak
+  ditunjuk baris mana pun menumpuk diam-diam sampai disknya penuh.
+
+  DISAJIKAN LEWAT RUTE BERIZIN (wms.delivery.arrival-photo), bukan folder
+  publik, dan tetap lewat WarehouseScope::assert — gambar isi gudang
+  pelanggan gudang lain sama bocornya dengan tabelnya.
 
 FASE 13 — Pengujian End-to-End & Pengerasan
   Jalankan 5 alur end-to-end penuh (order -> inbound -> putaway -> outbound
