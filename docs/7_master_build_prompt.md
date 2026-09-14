@@ -2084,11 +2084,46 @@ FASE 7 — PENOLAKAN CUSTOMER (barang ditolak saat pengiriman) — SELESAI
   INBOUND_RETURNS dihapus. InboundController::returnsIndex/processReturn
   yang masih dummy ikut dihapus, bukan dibiarkan.
 
-FASE 8 — Billing (Penagihan)
-  Migration: customer_billings, billing_payments
-  Ruang lingkup: docs/1 §6.6, §7.4. Wire BillingController. Overdue
-  customer = PERINGATAN VISUAL saja, BUKAN blokir order (lihat docs/1 §6.6,
-  keputusan yang sudah dikonfirmasi user sebelumnya).
+FASE 8 — Billing (Penagihan) — SELESAI (branch feat/fase-8-billing)
+  Migration: 2026_10_14_000001_create_billing_tables (customer_billings,
+  billing_payments). Ruang lingkup: docs/1 §6.6 (v1.3), §7.4.
+
+  KEPUTUSAN PEMILIK PRODUK (14 Sep 2026) — jangan ditanya ulang:
+    - BUKU PANTAU, BUKAN PEMBUKUAN. TIDAK ADA NOMINAL di tabel mana pun.
+    - Satu tagihan per INVOICE (pesanan induk so_merged_into_id), bukan per PO.
+    - Jatuh tempo = tanggal BARANG SAMPAI (delivered_at, WIB) + hari termin.
+    - Giro cukup dicatat nomornya (wajib), tanpa status "menunggu cair".
+    - TIDAK ada notifikasi ke Sales. Pengingat lonceng HANYA ke Manager
+      (Permission::BILLING_REMINDER), H-3 dan lewat jatuh tempo, sekali per
+      invoice per tahap.
+    - Overdue customer = PERINGATAN VISUAL saja, BUKAN blokir order.
+
+  Berkas:
+    - App\Support\Billing\Piutang — satu-satunya penulis tagihan DAN status
+      pesanan terkait: catat() (dipanggil di transaksi
+      ProofOfDelivery::complete), lunasi(), batalkan(), sinkron().
+      Invarian: tagihan belum lunas <-> pesanan COMPLETED_BILLING,
+      tagihan lunas <-> COMPLETED.
+    - Models CustomerBilling (scope belumLunas/lunas/lewatJatuhTempo/
+      jatuhTempoDalam, penandaCustomer() satu query untuk banyak customer),
+      BillingPayment (dibatalkan lewat voided_at, TIDAK dihapus).
+    - BillingController (index 4 tab, pay, void) +
+      ConfirmBillingPaymentRequest; view wms/billing/index (desain kartu &
+      modal lama dipertahankan, data karangan dihapus).
+    - Izin baru: BILLING_CONFIRM [super_admin, logistics],
+      BILLING_VOID [super_admin, manager], BILLING_REMINDER [manager].
+    - Command billing:ingatkan (harian 07:00 WIB) — sinkron() lalu lonceng
+      ringkasan per gudang (Notification::BILLING_DUE_SOON / BILLING_OVERDUE).
+    - Penanda piutang (partials/penanda-piutang): approval-detail, Master
+      Customer, pencarian customer di form pesanan Sales & pesanan internal.
+      Approve customer menunggak mencatat 'customer_menunggak' di log
+      aktivitas ORDER_APPROVE (PRD §7.4 jejak keputusan).
+    - Test: tests/Feature/Wms/BillingTest.php (21 test).
+
+  BATASAN YANG DITERIMA: pengiriman ulang (Reshipment) atas pesanan yang
+  invoicenya sudah lunas TIDAK membuka tagihan baru — tanpa nominal sistem
+  tidak bisa tahu apakah pembayaran sudah mencakup barang susulan; BC yang
+  memutuskan.
 
 FASE 9 — Notifikasi & Log Aktivitas — SELESAI
   Berkas: notifications (migrasi + model + App\Support\Notifier),
