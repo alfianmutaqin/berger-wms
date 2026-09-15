@@ -2621,6 +2621,39 @@ FASE 13 — Pengujian End-to-End & Pengerasan — SELESAI (branch feat/fase-13-p
   DOKUMEN: PRD v1.4, docs/0, 2, 3, 4, 5 (checklist go-live §10 baru),
   docs/6 ditulis ulang, docs/9_panduan_go_live.md, docs/10_checklist_uat.md.
 
+  AUDIT KEAMANAN PRA-GO-LIVE (PRD v1.5) — kelompok "sebelum go-live, kode"
+    - Akun dinonaktifkan / sandi direset pengelola TIDAK memutus sesi, dan
+      TrackUserSession tidak memeriksa is_active: karyawan yang diberhentikan
+      tetap bekerja dari HP yang masih masuk. Kini sesi dihapus dan middleware
+      menolak akun nonaktif di setiap permintaan; RouteSecurityTest memastikan
+      setiap rute login melewati session.track.
+    - Kunci akun 3x gagal + captcha gagal ikut dihitung = siapa pun bisa
+      mengunci akun siapa pun dengan 3 POST tanpa centang. Kini: captcha
+      ditolak tanpa menyentuh akun; 3x gagal mengunci email+IP
+      (App\Support\Auth\PenjagaLogin); akun terkunci setelah 10x gagal dari IP
+      yang belum pernah dipakai pemiliknya; throttle:login 20/menit per IP.
+    - Enumerasi email: "Akun tidak aktif"/"terkunci" hanya untuk email yang
+      ada, dan email tak dikenal dijawab tanpa bcrypt (lebih cepat). Kini
+      sandi dicocokkan dulu dengan hash tiruan; pesan kunci sama untuk semua.
+    - Tautan /epod/{token} berlaku selamanya dan menyebut pelanggan + isi
+      kiriman. Kini epod_expires_at 72 jam; sesudah sampai hanya "sudah
+      tercatat" 24 jam; resend menerbitkan token baru bila kedaluwarsa.
+    - DB_USERNAME aplikasi = superuser PostgreSQL. Kini superuser di
+      .env.postgres (tidak di-mount ke aplikasi), pengguna aplikasi dibuat
+      docker/postgres/init; wms:cek-produksi GAGAL bila masih superuser.
+    - Cadangan telanjang. Kini dienkripsi age (kunci publik di server, privat
+      di password manager); `cadangkan || log` diam-diam mengabaikan set -e
+      sehingga dump gagal tetap dipindahkan — kini tiap langkah return 1.
+      Diuji di Docker: cadangkan, uji pulih, pulih penuh (pemilik tabel tetap
+      pengguna aplikasi), tanpa kunci, dan jalur gagal.
+    - Workflow: action dikunci ke commit SHA, permissions contents: read,
+      fingerprint host SSH, Dependabot. docs/9: pengerasan SSH, fail2ban,
+      unattended-upgrades, Required reviewers.
+    - LoginTest tidak lagi bergantung pada RECAPTCHA_SECRET_KEY di .env lokal.
+  Sisa keputusan perusahaan (bukan kode): MFA Super Admin/Manager, mailbox
+  pengirim domain perusahaan, pentest pihak ketiga. Tiga bulan pertama:
+  kebijakan sandi, CSP nonce, log di luar server, WAF, retensi data (UU PDP).
+
 FASE 14 — Finalisasi CI/CD & Persiapan Go-Live
   Sewa VPS + domain, ikuti docs/9_panduan_go_live.md, jalankan
   `wms:cek-produksi` sampai tanpa GAGAL, uji pulih cadangan, isi data awal

@@ -392,7 +392,7 @@ main (production)
 | Maker-Checker inbound | Operator put-away â†’ Logistik verifikasi â†’ Stok aktif |
 | Max 2 device per user | Session ketiga menendang session tertua |
 | Verifikasi anti-bot | Semua role melewati Google reCAPTCHA di form login (bukan MFA/TOTP) |
-| Lockout login | 3 kali gagal (password atau anti-bot) -> terkunci 5/10/30/60/120 menit progresif |
+| Lockout login | 3 kali salah sandi -> kunci email+IP; 10 kali dari IP asing -> kunci akun; 5/10/30/60/120 menit progresif. Captcha gagal TIDAK dihitung (PRD v1.5, `App\Support\Auth\PenjagaLogin`) |
 | Edit stok | Hanya Manager dan Super Admin melalui menu Stock |
 | Qty put-away | Operator **BOLEH** koreksi Qty Aktual (SKU & batch tetap terkunci); selisih dicatat untuk verifikasi Logistik |
 | Hak Manager | CRUD User + Pengaturan Dokumen. TIDAK boleh membuat/mengubah akun Super Admin |
