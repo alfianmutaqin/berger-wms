@@ -530,11 +530,11 @@ FASE 4 — Inventory & Stok — SELESAI. Tabel inventory_stocks +
        dirusak oleh "sederhanakan saja jadi set qty". DIJAGA TEST khusus.
 
     3. STOK BARU BERUBAH SAAT LAPORAN DISAHKAN (permintaan pemilik produk:
-       "stok terbaru aktif setelah laporan dicetak"). Selama sesi berjalan
+       "stok terbaru aktif setelah laporan disahkan"). Selama sesi berjalan
        tidak satu pun angka stok tersentuh; hasil hitungan menumpuk sebagai
-       catatan. Pengesahan membawa langsung ke halaman laporan yang membuka
-       dialog cetak, sehingga terbitnya laporan dan berlakunya stok baru adalah
-       satu peristiwa.
+       catatan. Pengesahan dilakukan di kaki halaman laporan, sehingga
+       disahkannya laporan dan berlakunya stok baru adalah satu peristiwa.
+       Laporannya diunduh sebagai Excel.
 
     RAK YANG TIDAK SEMPAT DIHITUNG TIDAK DISENTUH, dan jumlahnya ditulis di
     laporan. Menganggapnya kosong berarti satu rak yang terlewat langsung
@@ -1066,7 +1066,7 @@ FASE 6 — Outbound (Approval -> Picking -> Delivery -> Verifikasi)
     tidak ada apa pun di layar yang menjelaskan ke mana 15 sisanya —
     karena itu hasilnya selalu disebut lengkap dengan nomor PO-nya.
     Pesanan yang SUDAH LEWAT PICKING sengaja tidak diisi lagi: barangnya
-    sudah diambil dari rak dan daftar pickingnya sudah dicetak, jadi alokasi
+    sudah diambil dari rak dan daftar pickingnya sudah diterbitkan, jadi alokasi
     susulan tidak akan pernah ikut terkirim.
 
     Koreksi yang MENGURANGI qty tidak memicu apa pun — tidak ada yang bisa
@@ -1369,10 +1369,9 @@ TAHAP 3 — PICKING (F-OUT-03) — SELESAI
     dua operator — yang kedua baru sadar di rak.
 
     BARISNYA DIBEKUKAN SAAT DAFTAR DIBUAT, bukan dihitung ulang dari alokasi
-    tiap kali layar dibuka. Daftar ini dicetak dan dibawa berjalan; kalau
-    isinya berubah di belakang layar, kertas di tangan operator dan layar di
-    kantor menunjukkan dua hal berbeda — dan yang dipercaya operator adalah
-    kertasnya. Konsekuensinya PendingAllocationFiller kini juga MELEWATI
+    tiap kali layar dibuka. Daftar ini dipegang operator sambil berjalan;
+    kalau isinya berubah di belakang layar, daftar di tangan operator dan
+    layar di kantor menunjukkan dua hal berbeda. Konsekuensinya PendingAllocationFiller kini juga MELEWATI
     pesanan yang picking_list_id-nya terisi, bukan hanya yang sudah lewat
     picking: alokasi susulan tidak akan pernah muncul di kertas itu.
 
@@ -1473,17 +1472,15 @@ TAHAP 4 — SURAT JALAN & PENGIRIMAN (F-OUT-04) — SELESAI
 
     TEMUAN YANG MENGUBAH SELURUH RANCANGAN TAHAP INI (pemilik produk,
     2026-09-03): SURAT JALAN RESMI DITERBITKAN SISTEM BC, BUKAN SISTEM INI.
-    Rancangan lama docs/1 F-OUT-04 #6-9 dan docs/2 §3.5 mengandaikan kita
-    yang mencetak, lengkap dengan nomor SJ yang dibangkitkan sendiri
-    (SJ-KRW-2026-00001) dan starting number yang diatur Super Admin.
-    Semuanya GUGUR:
+    Rancangan lama docs/1 F-OUT-04 dan docs/2 §3.5 mengandaikan kita yang
+    menerbitkan dokumen, lengkap dengan nomor SJ yang dibangkitkan sendiri
+    dan starting number yang diatur Super Admin. Semuanya GUGUR (docs/1 dan
+    docs/2 sudah diperbarui di PRD v1.4):
 
       - Tidak ada nomor SJ yang dibangkitkan di sini. `document_no` disalin
         dari kolom "Document No." milik BC.
-      - Tidak ada tombol cetak. Menyediakannya melahirkan dokumen kedua yang
-        bersaing dengan dokumen resminya.
-      - Kolom printed_at/printed_by rancangan lama tidak dipakai; yang
-        terjadi bukan pencetakan melainkan PENYALINAN.
+      - Yang terjadi di sini PENYALINAN, bukan penerbitan dokumen kedua
+        yang bersaing dengan dokumen resminya.
       - Pertanyaan "kode gudang KRW/PKU/SBY vs WH-0x" yang sengaja ditunda
         sejak sisipan multi-gudang IKUT GUGUR — tidak ada lagi nomor dokumen
         kita yang membutuhkannya.
@@ -2419,10 +2416,7 @@ FASE 11 — Dashboard & Laporan
     terlanjur diteruskan. Layar dan berkas dihitung METODE YANG SAMA; yang
     berbeda hanya batas barisnya (25 vs 20.000).
 
-    HANYA XLSX, TIDAK ADA PDF. Tombol PDF lama juga cuma alert(), jadi tidak
-    ada yang hilang — tetapi PDF memang bentuk yang salah: yang mengunduh
-    laporan penjualan ingin menyaring dan mem-pivot, dan angka tidak bisa
-    dikeluarkan lagi dari PDF. Angka ditulis bertipe NUMERIC, sisanya
+    HANYA XLSX (PRD v1.4: sistem tidak menghasilkan PDF). Angka ditulis bertipe NUMERIC, sisanya
     DIPAKSA teks (batch "0012" kehilangan nolnya kalau ditebak Excel).
 
     RENTANG 'sampai' DINAIKKAN KE AKHIR HARI. Tanpa itu memilih 1-30
@@ -2573,15 +2567,64 @@ FASE 12 — E-POD (Electronic Proof of Delivery) — SELESAI
   publik, dan tetap lewat WarehouseScope::assert — gambar isi gudang
   pelanggan gudang lain sama bocornya dengan tabelnya.
 
-FASE 13 — Pengujian End-to-End & Pengerasan
-  Jalankan 5 alur end-to-end penuh (order -> inbound -> putaway -> outbound
-  -> billing, dst — rujuk laporan onboarding sebelumnya bila ada). Tambah
-  test regresi lintas modul yang belum tercakup test per-fase.
+FASE 13 — Pengujian End-to-End & Pengerasan — SELESAI (branch feat/fase-13-pengerasan)
+  KEPUTUSAN PEMILIK PRODUK (PRD v1.4): Scan QR keluar dari scope go-live;
+  E2E = feature test + checklist UAT manual (tanpa Dusk); hosting VPS;
+  semua yang berhubungan dengan cetak/PDF dihapus.
+
+  TEST BARU
+    tests/Feature/Alur/AlurPesananTest.php — 4 alur lewat HTTP tanpa keadaan
+      buatan setelah langkah pertama: tunai, tempo -> billing lunas, produksi
+      -> rak -> terjual, kurang saat picking -> kirim ulang.
+    tests/Feature/RouteSecurityTest.php — setiap rute wajib login/portal/gate,
+      nama gate terdaftar, matriks 6 role ditolak 403 lewat HTTP, tamu ke
+      login, pesanan/notifikasi orang lain 404, CSP, SRI aset CDN.
+    tests/Feature/PerformaHalamanTest.php — jumlah query halaman daftar tidak
+      boleh naik saat datanya dilipatgandakan.
+    Model::preventLazyLoading() di luar production (AppServiceProvider).
+
+  TEMUAN YANG DIPERBAIKI
+    - docker-compose.prod.yml adalah override yang BOCOR: Compose menggabung
+      `ports: []`, jadi PostgreSQL & Redis (tanpa sandi) terbuka ke internet,
+      bind mount kode tetap aktif, dan layanan `horizon` (tidak terpasang)
+      membuat antrean tidak pernah jalan. Ditulis ulang sebagai berkas mandiri:
+      Caddy (HTTPS) -> nginx -> php-fpm, queue, scheduler, redis bersandi
+      (noeviction), backup harian 30 hari.
+    - CurrentActor: `?as=` dan Super Admin cadangan untuk tamu DIHAPUS —
+      pagarnya hanya APP_ENV=production.
+    - UserSeeder di production membuat akun contoh bersandi `password`
+      (dan mengembalikan sandi Super Admin tiap dijalankan). Kini hanya satu
+      Super Admin bersandi acak yang ditampilkan sekali.
+    - Disk local `serve => true` membuka /storage/{path} (GET & PUT) di luar
+      middleware. Dimatikan.
+    - SalesOrderRequest & UploadDeliveryProofRequest memvalidasi SEBELUM
+      cek kepemilikan: pesanan Sales lain dijawab pesan validasi, bukan 404.
+    - Impor Excel menyimpan ekstensi kiriman klien: DATA.XLSX lolos pratinjau
+      lalu gagal disimpan. Ekstensi kini dibaca dari isi berkas.
+    - SJ putaran kirim ulang tidak bisa dipasangkan manual ("sudah punya
+      Surat Jalan" menghitung SJ yang sudah berangkat). Kini hanya SJ yang
+      belum berangkat yang menghalangi.
+    - N+1: creator di Riwayat Produksi; bolehDibatalkan() per daftar picking.
+    - nginx: batas laju 5/menit untuk SEMUA request /login per IP — satu IP
+      kantor untuk seluruh gudang = 503 saat ganti shift. Kini POST saja,
+      20/menit, dengan IP asli dari proxy.
+    - Header CSP/Permissions-Policy (SecurityHeaders), trustProxies, HTTPS
+      dipaksa bila APP_URL https, chart.js dikunci 4.5.1, SRI untuk semua CDN.
+    - /health melaporkan detak penjadwal & antrean (App\Support\Detak).
+    - `wms:cek-produksi`: pemeriksaan pra-go-live (GAGAL = belum boleh).
+
+  DIBERSIHKAN
+    Tombol "Cetak PDF" riwayat produksi, CSS @media print, kelas no-print,
+    test & komentar riwayat cetak, Soketi di compose, tahap Node di
+    Dockerfile & CI, variabel Pusher/Vite di .env.example.
+
+  DOKUMEN: PRD v1.4, docs/0, 2, 3, 4, 5 (checklist go-live §10 baru),
+  docs/6 ditulis ulang, docs/9_panduan_go_live.md, docs/10_checklist_uat.md.
 
 FASE 14 — Finalisasi CI/CD & Persiapan Go-Live
-  Validasi pipeline docs/6 end-to-end untuk seluruh modul baru. Pastikan
-  jalur dev ?as=<slug> di CurrentActor benar-benar mati di production.
-  Review keamanan §8.2 dan performa §8.1 PRD sebelum dianggap selesai.
+  Sewa VPS + domain, ikuti docs/9_panduan_go_live.md, jalankan
+  `wms:cek-produksi` sampai tanpa GAGAL, uji pulih cadangan, isi data awal
+  sungguhan, UAT per peran (docs/10) sampai ditandatangani, tag v1.0.0.
 
 MULAI DARI: verifikasi ulang bagian "STATUS SAAT INI" di atas masih akurat
 (jalankan `git log --oneline -5` dan `php artisan migrate:status`), lalu

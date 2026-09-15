@@ -15,16 +15,16 @@ Sistem ini adalah **Warehouse Management System (WMS) terintegrasi dengan Sales 
 | Layer | Teknologi | Catatan |
 |---|---|---|
 | Backend Engine | **Laravel 13** (PHP 8.3+) | Eloquent ORM, Middleware, Queue |
-| Frontend | Laravel Blade + Livewire 3 + Bootstrap 5.3 | Tidak menggunakan SPA/React/Vue |
+| Frontend | Laravel Blade + Bootstrap 5.3 (CDN, versi terkunci + SRI) + `public/css/soms-style.css` | Tidak menggunakan SPA/React/Vue, Livewire, maupun Vite |
 | Database | PostgreSQL 16+ | Transaksional, konkurensi tinggi |
-| Cache | Redis 7 | Session, cache query, real-time notification |
-| Queue | Redis (`queue:work`); Horizon menyusul | Background jobs |
+| Cache | Redis 7 | Session, cache, antrean |
+| Queue | Redis (`queue:work`) | Email ke Sales, WhatsApp, detak antrean. Horizon tidak dipakai |
 | Verifikasi Anti-Bot | Google reCAPTCHA v2 | Widget di form login, semua role |
-| Realtime | Laravel Echo + **Soketi** | Notifikasi real-time dengan suara |
-| Infra | Docker + CI/CD (GitHub Actions) | Containerized deployment |
+| Notifikasi | Lonceng web (dibaca saat halaman dibuka) + email Gmail + WhatsApp | Tidak ada WebSocket, Echo, maupun Soketi (PRD v1.4) |
+| Infra | Docker + CI/CD (GitHub Actions), VPS dengan Caddy (HTTPS) | `docker-compose.prod.yml`, `docs/9_panduan_go_live.md` |
 
 > [!NOTE]
-> **Status dependensi (per 31 Agustus 2026).** Paket berikut **belum terpasang** dan harus ditambahkan saat modul terkait dikerjakan: Livewire 3, DomPDF/Snappy, Laravel Horizon, dan paket RBAC. Jangan berasumsi paket-paket ini sudah tersedia.
+> **Status dependensi (per 14 September 2026, go-live).** Livewire, DomPDF/Snappy, Laravel Horizon, paket RBAC, dan paket frontend Node (Vite, Echo, Pusher) **tidak dipakai dan tidak direncanakan**. RBAC memakai `App\Support\Permission` + Gate bawaan. Sistem tidak mencetak PDF (PRD v1.4). Jangan menambahkannya tanpa keputusan pemilik produk.
 >
 > **Sudah terpasang:** `phpoffice/phpspreadsheet` untuk impor Excel.
 >
@@ -405,8 +405,10 @@ main (production)
 | Upload file | Hanya PNG/JPG, max 5MB, atau langsung dari kamera |
 | No SPA | Tidak menggunakan React, Vue, atau framework SPA |
 | No external API | Tidak ada integrasi ke sistem keuangan atau pihak ketiga |
-| No backorder | Sisa pesanan yang tidak terpenuhi = lost sales |
-| QR lokasi rak | Scan QR pada rak DIGUNAKAN untuk put-away & picking (bukan barcode produk) |
+| Outstanding | Sisa pesanan yang belum terkirim tercatat sebagai outstanding dan bisa dikirim ulang dengan nomor SO yang sama |
+| QR lokasi rak | Scan QR **di luar scope go-live** (PRD v1.4) — operator mengetik kode rak |
+| Cetak / PDF | Tidak ada. Surat Jalan resmi terbit di BC; laporan diunduh Excel (PRD v1.4) |
+| CDN baru | Wajib versi terkunci + hash `integrity` (dicek `RouteSecurityTest`), dan domainnya ditambahkan di CSP `App\Http\Middleware\SecurityHeaders` |
 | Retur | Modul retur **masuk scope** - lihat PRD 6.10 |
 | Transfer gudang | Transfer stok antar lokasi & antar gudang **masuk scope** - lihat PRD 6.4 F-INV-05 |
 
@@ -415,7 +417,7 @@ main (production)
 > [!NOTE]
 > Dropdown **"Switch Role"** yang sebelumnya ada di `resources/views/partials/navbar-top.blade.php` sudah **dihapus** pada Fase 1 (Autentikasi Nyata — lihat `docs/7_master_build_prompt.md`). Peran kini sepenuhnya ditentukan oleh `auth()->user()->role` lewat login sungguhan (`AuthController`) dan ditegakkan oleh middleware `auth`, `session.track`, dan `portal:{wms|sales}` (lihat `bootstrap/app.php` dan `routes/web.php`).
 >
-> Jalur `?as=<slug-role>` di `App\Support\CurrentActor` dipertahankan sebagai fallback pengembangan, tapi kini dipagari `app()->environment('production')` dan pada praktiknya sudah tidak terjangkau lewat HTTP biasa — rute wms/sales sudah dibungkus middleware `auth` sehingga tamu ditolak sebelum sempat mencapai jalur tersebut.
+> Jalur `?as=<slug-role>` dan Super Admin cadangan untuk tamu di `App\Support\CurrentActor` **sudah dihapus** (Fase 13). Pagarnya dulu hanya `APP_ENV=production`, sehingga satu salah isi `.env` di server cukup untuk membuat tamu bertindak sebagai Super Admin. Tamu kini selalu `null`.
 
 ---
 
