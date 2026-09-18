@@ -146,7 +146,7 @@ class MaterialRequisitionTest extends TestCase
             'warehouse_id' => $this->karawang->id,
             'request_type' => MaterialRequisition::TYPE_REPROSES,
             'purpose' => 'Reproses DDP batch Juli menjadi warna Off White.',
-            'approver_name' => 'Pak Ganti',
+            'approver_name' => 'Pak Gandhi',
             'approver_phone' => '081234567890',
             'items' => [['product_id' => $this->produk->id, 'qty' => $qty]],
         ], $ganti));
@@ -259,7 +259,7 @@ class MaterialRequisitionTest extends TestCase
 
         $kontak = MrfApproverContact::firstOrFail();
 
-        $this->assertSame('Pak Ganti', $kontak->name);
+        $this->assertSame('Pak Gandhi', $kontak->name);
         $this->assertSame('6281234567890', $kontak->phone);
         $this->assertSame($this->karawang->id, $kontak->warehouse_id);
 
@@ -1189,6 +1189,36 @@ class MaterialRequisitionTest extends TestCase
             ->assertDontSee('tercatat atas nama Produksi');
     }
 
+    /**
+     * Daftar Picking dan antrean operator ikut menyebut divisinya.
+     *
+     * DUA LAYAR INI SEMPAT BALAS 504. Keduanya memuat MRF-nya dengan daftar
+     * kolom yang sempit, dan nama_divisi lalu jatuh ke relasi department yang
+     * tidak ikut dimuat — lazy loading dimatikan, jadi Blade melempar di
+     * tengah render. Test lama tidak menangkapnya karena data ujinya tidak
+     * pernah memuat daftar picking yang berasal dari MRF: cabang yang
+     * menampilkan divisinya tidak pernah dijalankan sama sekali.
+     */
+    public function test_daftar_picking_dan_antrean_operator_menyebut_divisinya(): void
+    {
+        $mrf = $this->ajukan(300);
+        $mrf = $this->disetujuiAtasan($mrf);
+        $mrf = $this->disetujuiLogistik($mrf, $this->stok(300), 300);
+
+        // Layar Logistik menyusun daftar.
+        $this->loginAt(Role::LOGISTICS);
+        $this->get(route('wms.picking.batching'))
+            ->assertOk()
+            ->assertSee($mrf->mrf_number)
+            ->assertSee('Produksi Inti');
+
+        // Antrean operator.
+        $this->loginAt(Role::WAREHOUSE_OPERATOR);
+        $this->get(route('wms.picking.queue'))
+            ->assertOk()
+            ->assertSee('Produksi Inti');
+    }
+
     /* ================================================== Pengajuan ulang */
 
     /** Ditolak atasan lalu diperbaiki: nomornya tetap, alurnya diulang. */
@@ -1211,7 +1241,7 @@ class MaterialRequisitionTest extends TestCase
         $this->put(route('wms.mrf.update', $mrf), [
             'request_type' => MaterialRequisition::TYPE_REPROSES,
             'purpose' => 'Reproses DDP batch Juli — qty diturunkan sesuai catatan atasan.',
-            'approver_name' => 'Pak Ganti',
+            'approver_name' => 'Pak Gandhi',
             'approver_phone' => '081234567890',
             'items' => [['product_id' => $this->produk->id, 'qty' => 120]],
         ])->assertRedirect(route('wms.mrf.show', $mrf));
@@ -1249,7 +1279,7 @@ class MaterialRequisitionTest extends TestCase
         $this->put(route('wms.mrf.update', $mrf), [
             'request_type' => MaterialRequisition::TYPE_REPROSES,
             'purpose' => 'Diajukan ulang setelah batch lain tersedia.',
-            'approver_name' => 'Pak Ganti',
+            'approver_name' => 'Pak Gandhi',
             'approver_phone' => '081234567890',
             'items' => [['product_id' => $this->produk->id, 'qty' => 300]],
         ])->assertRedirect();
